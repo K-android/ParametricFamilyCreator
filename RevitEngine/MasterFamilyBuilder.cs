@@ -365,6 +365,30 @@ namespace ParametricFamilyForge.RevitEngine
                     famMgr.AssociateElementParameterToFamilyParameter(nestedElemParam, masterFamParam);
                 }
             }
+
+            // Visibility Association (for component toggling, e.g. Show_Lever_Handle / Show_Pull_Bar)
+            if (!string.IsNullOrEmpty(nestedDef.VisibilityParameter))
+            {
+                Parameter? visParam = nestedInstance.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
+                FamilyParameter? masterVisParam = famMgr.get_Parameter(nestedDef.VisibilityParameter);
+
+                if (masterVisParam == null)
+                {
+                    // Create master Yes/No parameter if not already defined
+                    masterVisParam = famMgr.AddParameter(
+                        nestedDef.VisibilityParameter,
+                        GroupTypeId.Visibility,
+                        SpecTypeId.Boolean.YesNo,
+                        false
+                    );
+                    famMgr.Set(masterVisParam, 1); // Default to visible
+                }
+
+                if (visParam != null && !visParam.IsReadOnly && masterVisParam != null)
+                {
+                    famMgr.AssociateElementParameterToFamilyParameter(visParam, masterVisParam);
+                }
+            }
         }
     }
 

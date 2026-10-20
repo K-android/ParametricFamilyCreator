@@ -53,6 +53,16 @@ namespace ParametricFamilyForge.RevitEngine
 
                 FamilyManager famMgr = familyDoc.FamilyManager;
 
+                // Configure Shared Family status if requested (for independent BIM scheduling)
+                if (nestedDef.IsShared && familyDoc.OwnerFamily != null)
+                {
+                    Parameter? sharedParam = familyDoc.OwnerFamily.get_Parameter(BuiltInParameter.FAMILY_SHARED);
+                    if (sharedParam != null && !sharedParam.IsReadOnly)
+                    {
+                        sharedParam.Set(1);
+                    }
+                }
+
                 // 1. Add Sub-Parameters (Modern Revit 2025/2026 ForgeTypeId & SpecTypeId)
                 foreach (var paramDef in nestedDef.SubParameters)
                 {

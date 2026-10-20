@@ -77,9 +77,11 @@ HYBRID PARAMETER EXTRACTION RULES:
    - BALUSTRADES & SCREENING:
      * Glass Guardrail: Continuous base shoe channel (HollowBox) + vertical glass infill panel + top cap rail.
      * Louver Screen: Outer framing channel + arrayed angled louver blades (Extrusions).
-6. NESTED SUB-COMPONENTS & PARAMETER BINDINGS:
-   - Decompose repetitive or distinct components (e.g., sashes, legs, caster wheels, door handles, mullions) into 'nested_families'.
-   - In each nested family, specify 'parameter_bindings' mapping sub-component parameters to host master parameters (e.g., {'Sash_Width': 'Window_Width'}).
+6. NESTED SUB-COMPONENTS, HARDWARE & COMPONENT SWAPPING:
+   - Decompose distinct sub-assemblies (e.g., door handles, locks, sashes, table legs, casters) into 'nested_families'.
+   - Component Options / Swapping (e.g. Lever Handle vs Pull Bar): You can define multiple alternate nested families. Assign each a unique 'visibility_parameter' (e.g. 'Show_Lever_Handle', 'Show_Pull_Bar') mapped to a Yes/No master parameter so users can toggle or swap them in Revit.
+   - Shared Families: Set 'is_shared: true' on nested families when the sub-component should be independently schedulable in Revit project schedules (e.g., Door Hardware Schedules).
+   - Parameter Bindings: Map sub-component parameters to host master parameters (e.g., {'Handle_Length': 'Lever_Length', 'Leg_Height': 'Table_Height'}).
 7. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
 
         /// <summary>

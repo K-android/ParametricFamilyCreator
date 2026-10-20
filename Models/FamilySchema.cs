@@ -121,6 +121,18 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("template_name")]
         public string TemplateName { get; set; } = "Metric Generic Model.rft";
 
+        /// <summary>
+        /// When true, the nested component can be scheduled and tagged independently in Revit projects.
+        /// </summary>
+        [JsonPropertyName("is_shared")]
+        public bool IsShared { get; set; } = false;
+
+        /// <summary>
+        /// Optional master Yes/No parameter name to control instance visibility (e.g. 'Show_Lever_Handle').
+        /// </summary>
+        [JsonPropertyName("visibility_parameter")]
+        public string? VisibilityParameter { get; set; }
+
         [JsonPropertyName("sub_parameters")]
         public List<MasterParameterDef> SubParameters { get; set; } = new();
 

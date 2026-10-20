@@ -142,8 +142,8 @@ namespace ParametricFamilyForge.UI
         {
             OpenFileDialog dlg = new OpenFileDialog
             {
-                Title = "Select Reference Sketch or Cut-Sheet Image",
-                Filter = "Image Files (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|All Files (*.*)|*.*"
+                Title = "Select Architectural Cut-Sheet (PDF) or Reference Image",
+                Filter = "All Supported (*.pdf;*.png;*.jpg;*.jpeg;*.webp)|*.pdf;*.png;*.jpg;*.jpeg;*.webp|PDF Documents (*.pdf)|*.pdf|Images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|All Files (*.*)|*.*"
             };
 
             if (dlg.ShowDialog(this) == true)
@@ -174,24 +174,39 @@ namespace ParametricFamilyForge.UI
         {
             try
             {
-                BitmapImage bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.UriSource = new Uri(path);
-                bitmap.EndInit();
+                string ext = Path.GetExtension(path).ToLowerInvariant();
 
-                ImgPreview.Source = bitmap;
-                ImgPreview.Visibility = Visibility.Visible;
-                BtnClearImage.Visibility = Visibility.Visible;
-                EmptyDropContent.Visibility = Visibility.Collapsed;
+                if (ext == ".pdf")
+                {
+                    ImgPreview.Visibility = Visibility.Collapsed;
+                    PdfBadge.Visibility = Visibility.Visible;
+                    BtnClearImage.Visibility = Visibility.Visible;
+                    EmptyDropContent.Visibility = Visibility.Collapsed;
+                    _selectedImagePath = path;
+                    TxtImageStatus.Text = $"PDF: {Path.GetFileName(path)} (Ready for Multimodal Analysis)";
+                    LogMessage($"Cut-Sheet PDF attached: {path}");
+                }
+                else
+                {
+                    BitmapImage bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.UriSource = new Uri(path);
+                    bitmap.EndInit();
 
-                _selectedImagePath = path;
-                TxtImageStatus.Text = Path.GetFileName(path);
-                LogMessage($"Image loaded: {path}");
+                    ImgPreview.Source = bitmap;
+                    ImgPreview.Visibility = Visibility.Visible;
+                    PdfBadge.Visibility = Visibility.Collapsed;
+                    BtnClearImage.Visibility = Visibility.Visible;
+                    EmptyDropContent.Visibility = Visibility.Collapsed;
+                    _selectedImagePath = path;
+                    TxtImageStatus.Text = Path.GetFileName(path);
+                    LogMessage($"Image loaded: {path}");
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Failed to load image: {ex.Message}", "Image Load Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, $"Failed to load file: {ex.Message}", "File Load Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -199,10 +214,11 @@ namespace ParametricFamilyForge.UI
         {
             ImgPreview.Source = null;
             ImgPreview.Visibility = Visibility.Collapsed;
+            PdfBadge.Visibility = Visibility.Collapsed;
             BtnClearImage.Visibility = Visibility.Collapsed;
             EmptyDropContent.Visibility = Visibility.Visible;
             _selectedImagePath = null;
-            TxtImageStatus.Text = "No image selected";
+            TxtImageStatus.Text = "No file selected (Supports PDF, PNG, JPG, WEBP)";
         }
 
         #endregion

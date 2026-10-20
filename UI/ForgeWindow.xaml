@@ -164,25 +164,28 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Image / Cut-Sheet Upload -->
+                    <!-- Image / PDF Cut-Sheet Upload -->
                     <Border Background="{StaticResource PanelBackground}" Padding="12" CornerRadius="6" Margin="0,0,0,12">
                         <StackPanel>
-                            <TextBlock Text="2. Reference Cut-Sheet / Sketch Image" FontWeight="SemiBold" Foreground="#E5C07B" Margin="0,0,0,6" />
+                            <TextBlock Text="2. Reference Cut-Sheet (PDF, CAD Print, or Sketch)" FontWeight="SemiBold" Foreground="#E5C07B" Margin="0,0,0,6" />
                             
                             <Border x:Name="DropZone" Height="110" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="2" 
                                     CornerRadius="4" AllowDrop="True" Background="#1E2227"
                                     Drop="DropZone_Drop" DragOver="DropZone_DragOver">
                                 <Grid>
                                     <StackPanel x:Name="EmptyDropContent" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                        <TextBlock Text="Drag &amp; Drop Cut-Sheet or Sketch Here" HorizontalAlignment="Center" Foreground="#ABB2BF" />
-                                        <Button Content="Browse Image File" Margin="0,8,0,0" Click="BtnBrowseImage_Click" Background="#3E4451" />
+                                        <TextBlock Text="Drag &amp; Drop PDF Cut-Sheet or Image Here" HorizontalAlignment="Center" Foreground="#ABB2BF" />
+                                        <Button Content="Browse Image / PDF File" Margin="0,8,0,0" Click="BtnBrowseImage_Click" Background="#3E4451" />
                                     </StackPanel>
                                     <Image x:Name="ImgPreview" Stretch="Uniform" Margin="4" Visibility="Collapsed" />
+                                    <Border x:Name="PdfBadge" Background="#E06C75" CornerRadius="4" Padding="12,6" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                                        <TextBlock Text="📄 PDF Cut-Sheet Attached" Foreground="White" FontWeight="Bold" FontSize="13" />
+                                    </Border>
                                     <Button x:Name="BtnClearImage" Content="✕" Width="24" Height="24" HorizontalAlignment="Right" VerticalAlignment="Top" 
                                             Margin="4" Background="#E06C75" Visibility="Collapsed" Click="BtnClearImage_Click" />
                                 </Grid>
                             </Border>
-                            <TextBlock x:Name="TxtImageStatus" Text="No image selected" FontSize="11" Foreground="#5C6370" Margin="0,4,0,0" />
+                            <TextBlock x:Name="TxtImageStatus" Text="No file selected (Supports PDF, PNG, JPG, WEBP)" FontSize="11" Foreground="#5C6370" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
 

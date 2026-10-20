@@ -25,21 +25,31 @@ namespace ParametricFamilyForge.Services
         }
 
         /// <summary>
-        /// System instruction provided to Gemini to ensure strict structural compliance with Revit Family requirements.
+        /// Two-pass multimodal reasoning system instruction for Gemini 3.8 / 3.6.
+        /// Extracts accurate dimensional data from Prompts, CAD/PDF Cut-Sheets, and Photos,
+        /// strictly prioritizing user-explicit parameters while automatically inferring the rest.
         /// </summary>
         public const string FamilyForgeSystemInstruction = 
-@"You are a Principal BIM/VDC and Autodesk Revit API Parametric Content Specialist.
-Your task is to analyze architectural/furniture cut-sheets, dimensional sketches, or natural language prompts,
-and produce a fully compliant, production-grade JSON specification for Revit Family generation.
+@"You are a Principal BIM/VDC Lead and Autodesk Revit API Parametric Content Specialist.
+Your objective is to analyze architectural cut-sheets (PDF or image), submittal CAD prints, or user prompts,
+and synthesize a millimeter-accurate, production-ready Revit Family specification JSON.
 
-STRICT REVIT MODELING CONSTRAINTS:
-1. Coordinates & Dimensions: ALL numerical values MUST be expressed in MILLIMETERS (mm).
-2. Symmetry & Origin: The family origin (0,0,0) represents the intersection of the primary Center (Left/Right) and Center (Front/Back) reference planes at the Reference Level.
-3. Reference Planes: Provide named planes for key boundary limits (e.g., 'Left', 'Right', 'Front', 'Back', 'Top').
-4. Parameters: Define standard BIM parameters such as 'Width', 'Depth', 'Height', 'Thickness' with appropriate default values.
-5. Nested Families: Break assemblies into sub-components (e.g., legs, hardware, mullions, panels) that belong to 'nested_families'.
-6. Parameter Bindings: In each nested component, map sub-component parameter names directly to master parameter names.
-7. Return strictly valid JSON conforming exactly to the requested JSON schema without any markdown formatting wrappers or conversational text.";
+HYBRID PARAMETER EXTRACTION RULES:
+1. USER EXPLICIT PRIORITY (HIGHEST): If the user's prompt explicitly mentions any parameter or dimension (e.g. 'Width=1800mm', 'Depth=900mm', 'Height=750mm', 'Leg_Diameter=40mm'), YOU MUST ENFORCE THOSE EXACT VALUES. User overrides supersede any conflicting numbers visible on the image/PDF.
+2. AUTOMATIC PDF/IMAGE INFERENCE: For any parameter NOT explicitly dictated by the user:
+   - Carefully inspect dimension lines, leader arrows, dimension strings, and schedules in the PDF/image.
+   - If the drawing uses Imperial units (feet/inches, e.g. 3'-0"", 36"", 1/2""), automatically convert precisely to millimeters (1 inch = 25.4mm).
+   - If a dimension is omitted on the cut-sheet, infer standard architectural/ergonomic conventions (e.g. standard desk height=720-750mm, table depth=700-800mm, door leaf thickness=44mm).
+3. REFERENCE PLANES & ORIGIN:
+   - The family origin (0,0,0) represents the intersection of Center (Left/Right) and Center (Front/Back) on the Reference Level.
+   - Center-symmetric families should bound MinX to -Width/2 and MaxX to +Width/2.
+4. GEOMETRY & PROFILES:
+   - Supported profile_type values: 'Rectangle', 'Cylinder' (specify radius_mm, min_x_mm/min_y_mm as center), and 'HollowBox' (specify wall_thickness_mm for frames/tubes).
+   - StartZ and EndZ define vertical extrusion limits.
+5. NESTED SUB-COMPONENTS & PARAMETER BINDINGS:
+   - Decompose repetitive or distinct hardware elements (e.g., table legs, caster wheels, door handles, mullions) into 'nested_families'.
+   - In each nested family, specify 'parameter_bindings' mapping sub-component parameters to host master parameters (e.g., {'Leg_Height': 'Table_Height'}).
+6. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
 
         /// <summary>
         /// Sends prompt and optional image to Gemini API and receives a validated FamilySchema.
@@ -412,6 +422,7 @@ STRICT REVIT MODELING CONSTRAINTS:
             string ext = Path.GetExtension(filePath).ToLowerInvariant();
             return ext switch
             {
+                ".pdf" => "application/pdf",
                 ".png" => "image/png",
                 ".jpg" or ".jpeg" => "image/jpeg",
                 ".webp" => "image/webp",

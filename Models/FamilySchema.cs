@@ -45,6 +45,9 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("is_instance")]
         public bool IsInstance { get; set; } = false;
+
+        [JsonPropertyName("formula")]
+        public string? Formula { get; set; }
     }
 
     public class ReferencePlaneDef
@@ -70,6 +73,12 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("name")]
         public string Name { get; set; } = "SolidExtrusion";
 
+        /// <summary>
+        /// "Rectangle", "Cylinder", or "HollowBox"
+        /// </summary>
+        [JsonPropertyName("profile_type")]
+        public string ProfileType { get; set; } = "Rectangle";
+
         [JsonPropertyName("min_x_mm")]
         public double MinX_mm { get; set; }
 
@@ -81,6 +90,12 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("max_y_mm")]
         public double MaxY_mm { get; set; }
+
+        [JsonPropertyName("radius_mm")]
+        public double Radius_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("wall_thickness_mm")]
+        public double WallThickness_mm { get; set; } = 0.0;
 
         [JsonPropertyName("start_z_mm")]
         public double StartZ_mm { get; set; } = 0.0;

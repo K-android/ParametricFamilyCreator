@@ -77,6 +77,11 @@ namespace ParametricFamilyForge.RevitEngine
                     {
                         famMgr.Set(famParam, MmToFeet(paramDef.DefaultValueMm));
                     }
+
+                    if (!string.IsNullOrEmpty(paramDef.Formula))
+                    {
+                        try { famMgr.SetFormula(famParam, paramDef.Formula); } catch { }
+                    }
                 }
 
                 // 2. Locate or create standard SketchPlane (Reference Level)
@@ -128,19 +133,60 @@ namespace ParametricFamilyForge.RevitEngine
             double endZ = MmToFeet(extDef.EndZ_mm);
 
             CurveArrArray profile = new CurveArrArray();
-            CurveArray loop = new CurveArray();
 
-            XYZ p1 = new XYZ(minX, minY, 0);
-            XYZ p2 = new XYZ(maxX, minY, 0);
-            XYZ p3 = new XYZ(maxX, maxY, 0);
-            XYZ p4 = new XYZ(minX, maxY, 0);
+            if (string.Equals(extDef.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
+            {
+                // Circular profile (cylindrical legs, rods, shafts)
+                double centerX = (minX + maxX) / 2.0;
+                double centerY = (minY + maxY) / 2.0;
+                double radius = extDef.Radius_mm > 0 ? MmToFeet(extDef.Radius_mm) : Math.Abs(maxX - minX) / 2.0;
+                if (radius <= 0.001) radius = MmToFeet(25.0);
 
-            loop.Append(Line.CreateBound(p1, p2));
-            loop.Append(Line.CreateBound(p2, p3));
-            loop.Append(Line.CreateBound(p3, p4));
-            loop.Append(Line.CreateBound(p4, p1));
+                XYZ pt1 = new XYZ(centerX - radius, centerY, 0);
+                XYZ pt2 = new XYZ(centerX + radius, centerY, 0);
+                XYZ mid1 = new XYZ(centerX, centerY - radius, 0);
+                XYZ mid2 = new XYZ(centerX, centerY + radius, 0);
 
-            profile.Append(loop);
+                CurveArray circleLoop = new CurveArray();
+                circleLoop.Append(Arc.Create(pt1, pt2, mid1));
+                circleLoop.Append(Arc.Create(pt2, pt1, mid2));
+                profile.Append(circleLoop);
+            }
+            else
+            {
+                // Rectangular Outer Loop
+                CurveArray outerLoop = new CurveArray();
+                XYZ p1 = new XYZ(minX, minY, 0);
+                XYZ p2 = new XYZ(maxX, minY, 0);
+                XYZ p3 = new XYZ(maxX, maxY, 0);
+                XYZ p4 = new XYZ(minX, maxY, 0);
+
+                outerLoop.Append(Line.CreateBound(p1, p2));
+                outerLoop.Append(Line.CreateBound(p2, p3));
+                outerLoop.Append(Line.CreateBound(p3, p4));
+                outerLoop.Append(Line.CreateBound(p4, p1));
+                profile.Append(outerLoop);
+
+                // Hollow Inner Loop if wall thickness or HollowBox specified
+                if (extDef.WallThickness_mm > 0 || string.Equals(extDef.ProfileType, "HollowBox", StringComparison.OrdinalIgnoreCase))
+                {
+                    double wt = extDef.WallThickness_mm > 0 ? MmToFeet(extDef.WallThickness_mm) : MmToFeet(5.0);
+                    if ((maxX - minX) > 2 * wt && (maxY - minY) > 2 * wt)
+                    {
+                        CurveArray innerLoop = new CurveArray();
+                        XYZ ip1 = new XYZ(minX + wt, minY + wt, 0);
+                        XYZ ip2 = new XYZ(maxX - wt, minY + wt, 0);
+                        XYZ ip3 = new XYZ(maxX - wt, maxY - wt, 0);
+                        XYZ ip4 = new XYZ(minX + wt, maxY - wt, 0);
+
+                        innerLoop.Append(Line.CreateBound(ip1, ip4));
+                        innerLoop.Append(Line.CreateBound(ip4, ip3));
+                        innerLoop.Append(Line.CreateBound(ip3, ip2));
+                        innerLoop.Append(Line.CreateBound(ip2, ip1));
+                        profile.Append(innerLoop);
+                    }
+                }
+            }
 
             Extrusion extrusion = familyDoc.FamilyCreate.NewExtrusion(
                 true,

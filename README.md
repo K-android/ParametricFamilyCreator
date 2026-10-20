@@ -1,6 +1,6 @@
 # ParametricFamilyForge
 
-**ParametricFamilyForge** is a production-ready Autodesk Revit (2025 & 2026) add-in powered by Google Gemini Vision API and an AEC procedural rule engine. It translates natural language prompts and cut-sheet sketch images into complete, parametric Revit Families (`.rfa`) with nested sub-components and linked parametric constraints.
+**ParametricFamilyForge** is a production-ready Autodesk Revit (2024, 2025 & 2026) add-in powered by Google Gemini Vision API and an AEC procedural rule engine. It translates natural language prompts and cut-sheet sketch images into complete, parametric Revit Families (`.rfa`) with nested sub-components and linked parametric constraints.
 
 ---
 
@@ -8,8 +8,9 @@
 
 - **Generative AI Vision & Prompting**: Supports `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-pro`, and `gemini-1.5-flash` with Structured JSON Outputs.
 - **Offline Deterministic Fallback**: Includes a built-in architectural rule engine for procedural generation of workstations, doors, windows, and casework without an internet connection or API key.
-- **Modern Revit API Architecture**:
-  - Full compatibility with Revit 2025 and 2026 (`net8.0-windows`).
+- **Multi-Version Revit API Architecture**:
+  - Full compatibility with **Revit 2024 (.NET Framework 4.8)**, **Revit 2025 (.NET 8.0)**, and **Revit 2026 (.NET 8.0)**.
+  - Multi-targeted SDK (`net8.0-windows` & `net48`).
   - Utilizes modern `ForgeTypeId`, `SpecTypeId`, `GroupTypeId`, and `UnitTypeId.Millimeters` (no deprecated enums).
 - **Background Multi-Document Pipeline**:
   - Dynamically synthesizes sub-components in memory using `NewFamilyDocument()`.

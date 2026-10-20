@@ -65,7 +65,7 @@ STRICT REVIT MODELING CONSTRAINTS:
             // If an image is provided, encode to base64
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
-                byte[] imageBytes = await File.ReadAllBytesAsync(imageFilePath, cancellationToken);
+                byte[] imageBytes = await ReadAllBytesCompatAsync(imageFilePath, cancellationToken);
                 string mimeType = GetMimeType(imageFilePath);
                 parts.Add(new
                 {
@@ -99,7 +99,7 @@ STRICT REVIT MODELING CONSTRAINTS:
                 },
                 generationConfig = new
                 {
-                    temperature = Math.Clamp(temperature, 0.0, 1.0),
+                    temperature = ClampDouble(temperature, 0.0, 1.0),
                     response_mime_type = "application/json"
                 }
             };
@@ -418,6 +418,23 @@ STRICT REVIT MODELING CONSTRAINTS:
                 ".bmp" => "image/bmp",
                 _ => "application/octet-stream"
             };
+        }
+
+        private static double ClampDouble(double val, double min, double max)
+        {
+            if (val < min) return min;
+            if (val > max) return max;
+            return val;
+        }
+
+        private static async Task<byte[]> ReadAllBytesCompatAsync(string filePath, CancellationToken cancellationToken)
+        {
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
+            using (var ms = new MemoryStream())
+            {
+                await fs.CopyToAsync(ms, 81920, cancellationToken);
+                return ms.ToArray();
+            }
         }
     }
 }

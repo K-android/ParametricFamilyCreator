@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Multi-target: net48 for Revit 2024, net8.0-windows for Revit 2025 and 2026 -->
+    <TargetFrameworks>net8.0-windows;net48</TargetFrameworks>
     <UseWPF>true</UseWPF>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -12,8 +13,9 @@
     <RootNamespace>ParametricFamilyForge</RootNamespace>
     <AssemblyName>ParametricFamilyForge</AssemblyName>
     
-    <!-- Revit 2025/2026 build options -->
-    <RevitVersion Condition="'$(RevitVersion)' == ''">2025</RevitVersion>
+    <!-- Revit build paths by version -->
+    <RevitVersion Condition="'$(RevitVersion)' == '' and '$(TargetFramework)' == 'net48'">2024</RevitVersion>
+    <RevitVersion Condition="'$(RevitVersion)' == '' and '$(TargetFramework)' == 'net8.0-windows'">2025</RevitVersion>
     <RevitInstallPath Condition="'$(RevitInstallPath)' == ''">C:\Program Files\Autodesk\Revit $(RevitVersion)</RevitInstallPath>
   </PropertyGroup>
 
@@ -29,12 +31,16 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Nuget / System references -->
+  <!-- Nuget dependencies compatible across .NET 8 and .NET Framework 4.8 -->
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
-  <!-- Post build event to copy .addin manifest to Revit Addins folder if desired -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+  </ItemGroup>
+
+  <!-- Post build event to copy .addin manifest to Revit Addins folder -->
   <Target Name="CopyAddinManifest" AfterTargets="Build" Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)')">
     <Copy SourceFiles="$(ProjectDir)ParametricFamilyForge.addin" 
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)" />

@@ -104,9 +104,20 @@ foreach ($year in $DetectedYears) {
         New-Item -ItemType Directory -Path $targetPackageDir -Force | Out-Null
     }
 
+    # Determine framework target: net48 for Revit 2024, net8.0-windows for 2025+
+    $tfm = if ($year -eq "2024") { "net48" } else { "net8.0-windows" }
+    
+    $yearSourceDir = Join-Path $ProjectDir "bin\Release\$tfm"
+    if (-not (Test-Path $yearSourceDir)) {
+        $yearSourceDir = Join-Path $ProjectDir "bin\Debug\$tfm"
+    }
+    if (-not (Test-Path $yearSourceDir)) {
+        $yearSourceDir = $SourceDir
+    }
+
     # Copy DLLs
-    if (Test-Path $SourceDir) {
-        Get-ChildItem -Path $SourceDir -Filter "*.dll" -Recurse | ForEach-Object {
+    if (Test-Path $yearSourceDir) {
+        Get-ChildItem -Path $yearSourceDir -Filter "*.dll" -Recurse | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $targetPackageDir -Force
             Unblock-File -Path (Join-Path $targetPackageDir $_.Name) -ErrorAction SilentlyContinue
         }

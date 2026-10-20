@@ -46,10 +46,17 @@ HYBRID PARAMETER EXTRACTION RULES:
 4. GEOMETRY & PROFILES:
    - Supported profile_type values: 'Rectangle', 'Cylinder' (specify radius_mm, min_x_mm/min_y_mm as center), and 'HollowBox' (specify wall_thickness_mm for frames/tubes).
    - StartZ and EndZ define vertical extrusion limits.
-5. NESTED SUB-COMPONENTS & PARAMETER BINDINGS:
-   - Decompose repetitive or distinct hardware elements (e.g., table legs, caster wheels, door handles, mullions) into 'nested_families'.
-   - In each nested family, specify 'parameter_bindings' mapping sub-component parameters to host master parameters (e.g., {'Leg_Height': 'Table_Height'}).
-6. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
+5. ARCHITECTURAL TYPOLOGY DECOMPOSITION:
+   - Casement Window: Outer perimeter frame (HollowBox) + nested operable sash frame + glass infill + handle/crank hardware.
+   - Double-Hung Window: Outer master frame + Upper Sash nested at top half + Lower Sash nested at bottom half overlapping at Meeting Rail.
+   - Sliding / Glider Window: Outer frame with sill track + Left/Right sliding sash modules + interlock rails.
+   - Fixed / Picture Window: Solid perimeter frame (HollowBox) with direct central glass infill extrusion.
+   - Awning / Hopper Window: Top-hung or bottom-hung perimeter sash with friction hinge hardware.
+   - Doors & FF&E: Apply equivalent architectural assemblies (e.g. leaf + nested frame + hardware, or carcass + nested drawers/legs).
+6. NESTED SUB-COMPONENTS & PARAMETER BINDINGS:
+   - Decompose repetitive or distinct components (e.g., sashes, legs, caster wheels, door handles, mullions) into 'nested_families'.
+   - In each nested family, specify 'parameter_bindings' mapping sub-component parameters to host master parameters (e.g., {'Sash_Width': 'Window_Width'}).
+7. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
 
         /// <summary>
         /// Sends prompt and optional image to Gemini API and receives a validated FamilySchema.

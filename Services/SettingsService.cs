@@ -1,0 +1,68 @@
+using System;
+using System.IO;
+using System.Text.Json;
+using ParametricFamilyForge.Models;
+
+namespace ParametricFamilyForge.Services
+{
+    /// <summary>
+    /// Service to load and persist add-in configuration settings to %APPDATA%/Autodesk/Revit/Addins/ParametricFamilyForge/config.json.
+    /// </summary>
+    public static class SettingsService
+    {
+        private static readonly string SettingsFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Autodesk", "Revit", "Addins", "ParametricFamilyForge"
+        );
+
+        private static readonly string SettingsFilePath = Path.Combine(SettingsFolder, "config.json");
+
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNameCaseInsensitive = true
+        };
+
+        public static ForgeSettings LoadSettings()
+        {
+            try
+            {
+                if (File.Exists(SettingsFilePath))
+                {
+                    string json = File.ReadAllText(SettingsFilePath);
+                    var settings = JsonSerializer.Deserialize<ForgeSettings>(json, JsonOptions);
+                    if (settings != null)
+                    {
+                        return settings;
+                    }
+                }
+            }
+            catch
+            {
+                // Return default fallback on any deserialization failure
+            }
+
+            var defaultSettings = new ForgeSettings();
+            SaveSettings(defaultSettings);
+            return defaultSettings;
+        }
+
+        public static void SaveSettings(ForgeSettings settings)
+        {
+            try
+            {
+                if (!Directory.Exists(SettingsFolder))
+                {
+                    Directory.CreateDirectory(SettingsFolder);
+                }
+
+                string json = JsonSerializer.Serialize(settings, JsonOptions);
+                File.WriteAllText(SettingsFilePath, json);
+            }
+            catch
+            {
+                // Silently ignore if file permission issues arise
+            }
+        }
+    }
+}

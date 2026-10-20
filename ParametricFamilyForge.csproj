@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ParametricFamilyForge</RootNamespace>
+    <AssemblyName>ParametricFamilyForge</AssemblyName>
+    
+    <!-- Revit 2025/2026 build options -->
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2025</RevitVersion>
+    <RevitInstallPath Condition="'$(RevitInstallPath)' == ''">C:\Program Files\Autodesk\Revit $(RevitVersion)</RevitInstallPath>
+  </PropertyGroup>
+
+  <!-- Reference Revit API DLLs -->
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitInstallPath)\RevitAPI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitInstallPath)\RevitAPIUI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Nuget / System references -->
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <!-- Post build event to copy .addin manifest to Revit Addins folder if desired -->
+  <Target Name="CopyAddinManifest" AfterTargets="Build" Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)')">
+    <Copy SourceFiles="$(ProjectDir)ParametricFamilyForge.addin" 
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,20 @@
+# Build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Packages
+packages/
+*.nupkg
+
+# Temporary files
+*.tmp
+*.log
+*~
+
+# Revit temporary recovery files
+*.00*.rfa
+*.00*.rvt

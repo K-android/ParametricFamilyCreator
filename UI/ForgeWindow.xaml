@@ -1,0 +1,266 @@
+<Window x:Class="ParametricFamilyForge.UI.ForgeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Parametric Family Forge — AI &amp; Parametric Revit Modeler" 
+        Height="820" Width="1100"
+        MinHeight="650" MinWidth="900"
+        WindowStartupLocation="CenterScreen"
+        Background="#181A1F" Foreground="#E0E2E8"
+        FontFamily="Segoe UI" FontSize="13">
+
+    <Window.Resources>
+        <!-- UI Theme Colors -->
+        <SolidColorBrush x:Key="PrimaryAccent" Color="#007ACC" />
+        <SolidColorBrush x:Key="AccentHover" Color="#1C97EA" />
+        <SolidColorBrush x:Key="PanelBackground" Color="#21252B" />
+        <SolidColorBrush x:Key="InputBackground" Color="#282C34" />
+        <SolidColorBrush x:Key="BorderBrushColor" Color="#3B4048" />
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="Foreground" Value="#E0E2E8" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="Foreground" Value="#E0E2E8" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}" />
+            <Setter Property="Padding" Value="6,4" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PrimaryAccent}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentHover}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#4B5263" />
+                    <Setter Property="Foreground" Value="#828997" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Top Header & Settings Bar -->
+        <Border Grid.Row="0" Margin="0,0,0,14" Padding="12" Background="{StaticResource PanelBackground}" CornerRadius="6">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Parametric Family Forge" FontSize="18" FontWeight="Bold" Foreground="#61AFEF" />
+                        <TextBlock Text="Generative AI &amp; Procedural Revit Family Generator (2025/2026 Compatible)" FontSize="12" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BtnToggleSettings" Content="⚙ AI Engine Settings" Background="#3E4451" Click="BtnToggleSettings_Click" Margin="0,0,8,0" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Collapsible Settings Panel -->
+                <Border x:Name="SettingsPanel" Grid.Row="1" Margin="0,10,0,0" Padding="10" Background="#1E2227" CornerRadius="4" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="220" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- API Key -->
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Gemini API Key:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,3" />
+                            <PasswordBox x:Name="TxtApiKey" Background="{StaticResource InputBackground}" Foreground="White" BorderBrush="{StaticResource BorderBrushColor}" Padding="5" />
+                        </StackPanel>
+
+                        <!-- Model Engine Selector -->
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="AI Model Engine:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,3" />
+                            <ComboBox x:Name="CmbModelEngine" SelectedIndex="0">
+                                <ComboBoxItem Content="gemini-2.5-flash" Tag="gemini-2.5-flash" />
+                                <ComboBoxItem Content="gemini-2.0-flash" Tag="gemini-2.0-flash" />
+                                <ComboBoxItem Content="gemini-1.5-pro" Tag="gemini-1.5-pro" />
+                                <ComboBoxItem Content="gemini-1.5-flash" Tag="gemini-1.5-flash" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Temperature -->
+                        <StackPanel Grid.Column="4">
+                            <Grid>
+                                <TextBlock Text="Temperature:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,3" />
+                                <TextBlock x:Name="TxtTempValue" Text="0.2" FontSize="11" Foreground="#61AFEF" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider x:Name="SliderTemperature" Minimum="0.0" Maximum="1.0" Value="0.2" TickFrequency="0.05" IsSnapToTickEnabled="True" 
+                                    ValueChanged="SliderTemperature_ValueChanged" Margin="0,4,0,0" />
+                        </StackPanel>
+
+                        <!-- Save Settings Button -->
+                        <StackPanel Grid.Column="6" VerticalAlignment="Bottom">
+                            <Button x:Name="BtnSaveSettings" Content="Save Config" Background="#98C379" Foreground="#1E2227" Click="BtnSaveSettings_Click" Padding="12,5" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Main Body Grid -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*" MinWidth="360" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="1*" MinWidth="360" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Panel -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <!-- Prompt Box -->
+                    <Border Background="{StaticResource PanelBackground}" Padding="12" CornerRadius="6" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="1. Design Prompt &amp; Dimensional Spec" FontWeight="SemiBold" Foreground="#98C379" Margin="0,0,0,6" />
+                            <TextBox x:Name="TxtPrompt" Height="75" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                     Text="Modern ergonomic office workstation: 1600mm width, 800mm depth, 750mm height, with 4 nested metallic cylindrical legs and parametric linked dimensions." />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Image / Cut-Sheet Upload -->
+                    <Border Background="{StaticResource PanelBackground}" Padding="12" CornerRadius="6" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="2. Reference Cut-Sheet / Sketch Image" FontWeight="SemiBold" Foreground="#E5C07B" Margin="0,0,0,6" />
+                            
+                            <Border x:Name="DropZone" Height="110" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="2" 
+                                    CornerRadius="4" AllowDrop="True" Background="#1E2227"
+                                    Drop="DropZone_Drop" DragOver="DropZone_DragOver">
+                                <Grid>
+                                    <StackPanel x:Name="EmptyDropContent" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <TextBlock Text="Drag &amp; Drop Cut-Sheet or Sketch Here" HorizontalAlignment="Center" Foreground="#ABB2BF" />
+                                        <Button Content="Browse Image File" Margin="0,8,0,0" Click="BtnBrowseImage_Click" Background="#3E4451" />
+                                    </StackPanel>
+                                    <Image x:Name="ImgPreview" Stretch="Uniform" Margin="4" Visibility="Collapsed" />
+                                    <Button x:Name="BtnClearImage" Content="✕" Width="24" Height="24" HorizontalAlignment="Right" VerticalAlignment="Top" 
+                                            Margin="4" Background="#E06C75" Visibility="Collapsed" Click="BtnClearImage_Click" />
+                                </Grid>
+                            </Border>
+                            <TextBlock x:Name="TxtImageStatus" Text="No image selected" FontSize="11" Foreground="#5C6370" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Directories -->
+                    <Border Background="{StaticResource PanelBackground}" Padding="12" CornerRadius="6" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="3. Environment Configuration" FontWeight="SemiBold" Foreground="#C678DD" Margin="0,0,0,6" />
+                            
+                            <TextBlock Text="Revit Family Template Directory (.rft):" FontSize="11" Foreground="#ABB2BF" />
+                            <Grid Margin="0,2,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="TxtTemplateDir" Text="C:\ProgramData\Autodesk\RVT 2025\Family Templates\English" />
+                                <Button Grid.Column="1" Content="..." Margin="6,0,0,0" Click="BtnBrowseTemplateDir_Click" Background="#3E4451" />
+                            </Grid>
+
+                            <TextBlock Text="Output Family Destination (.rfa):" FontSize="11" Foreground="#ABB2BF" />
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="TxtOutputDir" />
+                                <Button Grid.Column="1" Content="..." Margin="6,0,0,0" Click="BtnBrowseOutputDir_Click" Background="#3E4451" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Synthesize Buttons -->
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="BtnSynthesizeAi" Grid.Column="0" Content="Synthesize AI (Gemini)" Click="BtnSynthesizeAi_Click" Background="#98C379" Foreground="#1E2227" />
+                        <Button x:Name="BtnDeterministic" Grid.Column="2" Content="Deterministic Fallback" Click="BtnDeterministic_Click" Background="#61AFEF" Foreground="#1E2227" />
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" Background="#282C34" />
+
+            <!-- Right Panel: JSON Schema Preview & Execution -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="125" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Revit Family Schema Specification (JSON)" FontWeight="SemiBold" Foreground="#61AFEF" Margin="0,0,0,6" />
+
+                <TextBox x:Name="TxtJsonPreview" Grid.Row="1" AcceptsReturn="True" TextWrapping="NoWrap"
+                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas" FontSize="12" Foreground="#98C379" Background="#1E2227" />
+
+                <Button x:Name="BtnGenerateRevitFamily" Grid.Row="2" Content="🚀 Generate &amp; Load Revit Family (.rfa)" 
+                        Height="40" Margin="0,10,0,10" FontSize="14" FontWeight="Bold"
+                        Click="BtnGenerateRevitFamily_Click" />
+
+                <Border Grid.Row="3" Background="#1E2227" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="4">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Execution Logs:" FontSize="11" Foreground="#5C6370" Margin="6,4,0,0" />
+                        <TextBox x:Name="TxtLogs" Grid.Row="1" IsReadOnly="True" Background="Transparent" BorderThickness="0"
+                                 Foreground="#ABB2BF" FontFamily="Consolas" FontSize="11" VerticalScrollBarVisibility="Auto" />
+                        <ProgressBar x:Name="ProgBar" Grid.Row="2" Height="4" IsIndeterminate="False" Visibility="Collapsed" Foreground="#61AFEF" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Footer -->
+        <TextBlock Grid.Row="2" Text="Ready | ParametricFamilyForge for Revit 2025/2026 | Configuration saved to %APPDATA%" FontSize="11" Foreground="#5C6370" Margin="0,8,0,0" />
+    </Grid>
+</Window>

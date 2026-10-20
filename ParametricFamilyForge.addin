@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>ParametricFamilyForge</Name>
+    <Assembly>ParametricFamilyForge.dll</Assembly>
+    <AddInId>8B145E9F-349C-4D2A-9447-0F89E88E4B17</AddInId>
+    <FullClassName>ParametricFamilyForge.App</FullClassName>
+    <VendorId>AECFORGE</VendorId>
+    <VendorDescription>Parametric Family Forge - AI-Driven Revit Family Generator</VendorDescription>
+  </AddIn>
+</RevitAddIns>

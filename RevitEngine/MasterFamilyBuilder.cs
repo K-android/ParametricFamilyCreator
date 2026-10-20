@@ -1,0 +1,346 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using ParametricFamilyForge.Models;
+
+namespace ParametricFamilyForge.RevitEngine
+{
+    /// <summary>
+    /// Constructs the Master Host Family (.rfa), generates parametric host geometry,
+    /// sets up reference planes, dimensional constraints, loads nested families,
+    /// and associates nested parameters to master family parameters.
+    /// </summary>
+    public static class MasterFamilyBuilder
+    {
+        public static double MmToFeet(double mm)
+        {
+            return UnitUtils.ConvertToInternalUnits(mm, UnitTypeId.Millimeters);
+        }
+
+        public static string BuildAndLoadIntoProject(
+            UIApplication uiApp,
+            FamilySchema schema,
+            Dictionary<string, string> nestedRfaPaths,
+            string templateDirectoryPath,
+            string outputDirectoryPath)
+        {
+            if (uiApp == null) throw new ArgumentNullException(nameof(uiApp));
+            if (schema == null) throw new ArgumentNullException(nameof(schema));
+
+            Document activeProjectDoc = uiApp.ActiveUIDocument?.Document 
+                ?? throw new InvalidOperationException("No active project document found. Please open a Revit project before generating families.");
+
+            string templatePath = Path.Combine(templateDirectoryPath, schema.TemplateName);
+            if (!File.Exists(templatePath))
+            {
+                string defaultTemplates = @"C:\ProgramData\Autodesk\RVT 2025\Family Templates\English";
+                string altPath = Path.Combine(defaultTemplates, schema.TemplateName);
+                if (File.Exists(altPath))
+                {
+                    templatePath = altPath;
+                }
+                else
+                {
+                    throw new FileNotFoundException($"Master Family template not found: '{schema.TemplateName}'.");
+                }
+            }
+
+            Document masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
+            if (masterDoc == null)
+            {
+                throw new InvalidOperationException($"Failed to create Master Family document from '{templatePath}'.");
+            }
+
+            string masterRfaPath = Path.Combine(outputDirectoryPath, $"{schema.MasterFamilyName}.rfa");
+
+            using (Transaction trans = new Transaction(masterDoc, $"Build Master Family {schema.MasterFamilyName}"))
+            {
+                trans.Start();
+
+                FamilyManager famMgr = masterDoc.FamilyManager;
+
+                // 1. Create Master Parameters
+                var paramDict = new Dictionary<string, FamilyParameter>(StringComparer.OrdinalIgnoreCase);
+                foreach (var paramDef in schema.MasterParameters)
+                {
+                    ForgeTypeId specType = SpecTypeId.Length;
+                    if (string.Equals(paramDef.DataType, "YesNo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        specType = SpecTypeId.Boolean.YesNo;
+                    }
+                    else if (string.Equals(paramDef.DataType, "Material", StringComparison.OrdinalIgnoreCase))
+                    {
+                        specType = SpecTypeId.Reference.Material;
+                    }
+
+                    FamilyParameter famParam = famMgr.AddParameter(
+                        paramDef.Name,
+                        GroupTypeId.Geometry,
+                        specType,
+                        paramDef.IsInstance
+                    );
+
+                    if (specType == SpecTypeId.Length && paramDef.DefaultValueMm != 0)
+                    {
+                        famMgr.Set(famParam, MmToFeet(paramDef.DefaultValueMm));
+                    }
+
+                    paramDict[paramDef.Name] = famParam;
+                }
+
+                // 2. Identify Plan View (e.g., "Ref. Level")
+                View? planView = new FilteredElementCollector(masterDoc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && (v.Name.Contains("Ref. Level") || v.Name.Contains("Level")));
+
+                if (planView == null)
+                {
+                    planView = masterDoc.ActiveView;
+                }
+
+                // 3. Create Reference Planes & Apply The Critical Regenerate() Rule
+                var createdRefPlanes = new Dictionary<string, ReferencePlane>(StringComparer.OrdinalIgnoreCase);
+                foreach (var rpDef in schema.ReferencePlanes)
+                {
+                    ReferencePlane? rp = CreateReferencePlane(masterDoc, planView, rpDef);
+                    if (rp != null && !string.IsNullOrEmpty(rpDef.Name))
+                    {
+                        createdRefPlanes[rpDef.Name] = rp;
+                    }
+                }
+
+                // CRITICAL REQUIREMENT: Regenerate() before any geometry or dimension binding
+                masterDoc.Regenerate();
+
+                // 4. Create Host Extrusions
+                SketchPlane? sketchPlane = new FilteredElementCollector(masterDoc)
+                    .OfClass(typeof(SketchPlane))
+                    .Cast<SketchPlane>()
+                    .FirstOrDefault(sp => sp.Name.Contains("Ref. Level") || sp.Name.Contains("Level"));
+
+                if (sketchPlane == null)
+                {
+                    Plane defaultPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero);
+                    sketchPlane = SketchPlane.Create(masterDoc, defaultPlane);
+                }
+
+                foreach (var extDef in schema.HostExtrusions)
+                {
+                    CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                }
+
+                masterDoc.Regenerate();
+
+                // 5. Load and Place Nested Families + Associate Parameters
+                foreach (var nestedDef in schema.NestedFamilies)
+                {
+                    if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
+                    {
+                        PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath);
+                    }
+                }
+
+                masterDoc.Regenerate();
+                trans.Commit();
+            }
+
+            // Save Master Family to output directory
+            SaveAsOptions saveOptions = new SaveAsOptions
+            {
+                OverwriteExistingFile = true,
+                Compact = true
+            };
+            masterDoc.SaveAs(masterRfaPath, saveOptions);
+
+            // 6. Load Master Family directly into the Active Project Document
+            using (Transaction projectTrans = new Transaction(activeProjectDoc, $"Load Family {schema.MasterFamilyName}"))
+            {
+                projectTrans.Start();
+                masterDoc.LoadFamily(activeProjectDoc, new FamilyLoadOptions(), out Family loadedProjectFamily);
+                projectTrans.Commit();
+            }
+
+            masterDoc.Close(false);
+
+            return masterRfaPath;
+        }
+
+        private static ReferencePlane? CreateReferencePlane(Document doc, View view, ReferencePlaneDef rpDef)
+        {
+            double offsetFeet = MmToFeet(rpDef.OffsetFromOriginMm);
+            XYZ bubbleEnd;
+            XYZ freeEnd;
+            XYZ cutVec = XYZ.BasisZ;
+
+            if (string.Equals(rpDef.Orientation, "X", StringComparison.OrdinalIgnoreCase))
+            {
+                // Parallel to Y axis (Left/Right)
+                bubbleEnd = new XYZ(offsetFeet, -10.0, 0.0);
+                freeEnd = new XYZ(offsetFeet, 10.0, 0.0);
+            }
+            else if (string.Equals(rpDef.Orientation, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                // Parallel to X axis (Front/Back)
+                bubbleEnd = new XYZ(-10.0, offsetFeet, 0.0);
+                freeEnd = new XYZ(10.0, offsetFeet, 0.0);
+            }
+            else
+            {
+                // Elevation plane (Z)
+                bubbleEnd = new XYZ(-10.0, 0.0, offsetFeet);
+                freeEnd = new XYZ(10.0, 0.0, offsetFeet);
+                cutVec = XYZ.BasisY;
+            }
+
+            ReferencePlane rp = doc.FamilyCreate.NewReferencePlane(bubbleEnd, freeEnd, cutVec, view);
+            if (!string.IsNullOrEmpty(rpDef.Name))
+            {
+                rp.Name = rpDef.Name;
+            }
+            rp.Maximize3DExtents();
+            return rp;
+        }
+
+        private static void CreateHostExtrusion(
+            Document doc,
+            FamilyManager famMgr,
+            SketchPlane sketchPlane,
+            ExtrusionDef extDef,
+            Dictionary<string, FamilyParameter> paramDict)
+        {
+            double minX = MmToFeet(extDef.MinX_mm);
+            double maxX = MmToFeet(extDef.MaxX_mm);
+            double minY = MmToFeet(extDef.MinY_mm);
+            double maxY = MmToFeet(extDef.MaxY_mm);
+            double startZ = MmToFeet(extDef.StartZ_mm);
+            double endZ = MmToFeet(extDef.EndZ_mm);
+
+            CurveArrArray profile = new CurveArrArray();
+            CurveArray loop = new CurveArray();
+
+            XYZ p1 = new XYZ(minX, minY, 0);
+            XYZ p2 = new XYZ(maxX, minY, 0);
+            XYZ p3 = new XYZ(maxX, maxY, 0);
+            XYZ p4 = new XYZ(minX, maxY, 0);
+
+            loop.Append(Line.CreateBound(p1, p2));
+            loop.Append(Line.CreateBound(p2, p3));
+            loop.Append(Line.CreateBound(p3, p4));
+            loop.Append(Line.CreateBound(p4, p1));
+
+            profile.Append(loop);
+
+            Extrusion extrusion = doc.FamilyCreate.NewExtrusion(
+                true,
+                profile,
+                sketchPlane,
+                endZ - startZ
+            );
+
+            Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
+            Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);
+
+            if (startParam != null && !startParam.IsReadOnly)
+            {
+                startParam.Set(startZ);
+            }
+            if (endParam != null && !endParam.IsReadOnly)
+            {
+                endParam.Set(endZ);
+            }
+
+            // Link height parameter if specified
+            if (!string.IsNullOrEmpty(extDef.HeightParameter) && paramDict.TryGetValue(extDef.HeightParameter, out FamilyParameter? heightFamParam))
+            {
+                if (endParam != null && !endParam.IsReadOnly)
+                {
+                    famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam);
+                }
+            }
+        }
+
+        private static void PlaceAndBindNestedFamily(
+            Document masterDoc,
+            FamilyManager famMgr,
+            NestedFamilyDef nestedDef,
+            string nestedRfaPath)
+        {
+            // Load nested RFA into Master Family
+            bool loaded = masterDoc.LoadFamily(nestedRfaPath, out Family loadedNestedFamily);
+            if (!loaded && loadedNestedFamily == null)
+            {
+                // In case it was already loaded earlier
+                loadedNestedFamily = new FilteredElementCollector(masterDoc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.Name.Equals(nestedDef.NestedFamilyName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (loadedNestedFamily == null) return;
+
+            var symbolIds = loadedNestedFamily.GetFamilySymbolIds();
+            if (symbolIds.Count == 0) return;
+
+            FamilySymbol symbol = (FamilySymbol)masterDoc.GetElement(symbolIds.First());
+
+            // Activate symbol if not active
+            if (!symbol.IsActive)
+            {
+                symbol.Activate();
+                masterDoc.Regenerate();
+            }
+
+            // Placement point
+            XYZ origin = new XYZ(
+                MmToFeet(nestedDef.PlacementOffsetMm.X),
+                MmToFeet(nestedDef.PlacementOffsetMm.Y),
+                MmToFeet(nestedDef.PlacementOffsetMm.Z)
+            );
+
+            FamilyInstance nestedInstance = masterDoc.FamilyCreate.NewFamilyInstance(
+                origin,
+                symbol,
+                Autodesk.Revit.DB.Structure.StructuralType.NonStructural
+            );
+
+            // Parameter Association (Critical Step)
+            // Associate nested instance parameters to host family parameters
+            foreach (var kvp in nestedDef.ParameterBindings)
+            {
+                string nestedParamName = kvp.Key;
+                string masterParamName = kvp.Value;
+
+                Parameter? nestedElemParam = nestedInstance.LookupParameter(nestedParamName);
+                FamilyParameter? masterFamParam = famMgr.get_Parameter(masterParamName);
+
+                if (nestedElemParam != null && masterFamParam != null && !nestedElemParam.IsReadOnly)
+                {
+                    famMgr.AssociateElementParameterToFamilyParameter(nestedElemParam, masterFamParam);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Custom IFamilyLoadOptions implementation to always overwrite existing family parameters and definitions.
+    /// </summary>
+    public class FamilyLoadOptions : IFamilyLoadOptions
+    {
+        public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+        {
+            overwriteParameterValues = true;
+            return true;
+        }
+
+        public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+        {
+            source = FamilySource.Family;
+            overwriteParameterValues = true;
+            return true;
+        }
+    }
+}

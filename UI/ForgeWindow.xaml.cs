@@ -62,14 +62,20 @@ namespace ParametricFamilyForge.UI
             SliderTemperature.Value = _settings.Temperature;
             TxtTempValue.Text = _settings.Temperature.ToString("0.00");
 
-            // Select matching model engine
+            // Select matching model engine or set custom text
+            bool matched = false;
             foreach (ComboBoxItem item in CmbModelEngine.Items)
             {
                 if (string.Equals(item.Tag?.ToString(), _settings.ModelEngine, StringComparison.OrdinalIgnoreCase))
                 {
                     CmbModelEngine.SelectedItem = item;
+                    matched = true;
                     break;
                 }
+            }
+            if (!matched)
+            {
+                CmbModelEngine.Text = _settings.ModelEngine;
             }
         }
 
@@ -83,6 +89,10 @@ namespace ParametricFamilyForge.UI
             if (CmbModelEngine.SelectedItem is ComboBoxItem selectedItem && selectedItem.Tag != null)
             {
                 _settings.ModelEngine = selectedItem.Tag.ToString()!;
+            }
+            else if (!string.IsNullOrWhiteSpace(CmbModelEngine.Text))
+            {
+                _settings.ModelEngine = CmbModelEngine.Text.Trim();
             }
 
             SettingsService.SaveSettings(_settings);

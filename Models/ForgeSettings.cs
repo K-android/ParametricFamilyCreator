@@ -15,7 +15,7 @@ namespace ParametricFamilyForge.Models
         public string ApiKey { get; set; } = string.Empty;
 
         [JsonPropertyName("model_engine")]
-        public string ModelEngine { get; set; } = "gemini-1.5-flash";
+        public string ModelEngine { get; set; } = "gemini-3.8";
 
         [JsonPropertyName("temperature")]
         public double Temperature { get; set; } = 0.2;

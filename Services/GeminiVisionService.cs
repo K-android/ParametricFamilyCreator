@@ -17,7 +17,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        private const string DefaultGeminiModel = "gemini-1.5-flash";
+        private const string DefaultGeminiModel = "gemini-3.8";
 
         public GeminiVisionService(HttpClient? httpClient = null)
         {

@@ -162,7 +162,7 @@ if (-not (Test-Path $configFile)) {
     $defaultConfig = @"
 {
   "api_key": "",
-  "model_engine": "gemini-1.5-flash",
+  "model_engine": "gemini-3.8",
   "temperature": 0.2,
   "template_directory": "C:\\ProgramData\\Autodesk\\RVT 2025\\Family Templates\\English",
   "output_directory": "$([System.IO.Path]::Combine($env:USERPROFILE, 'Desktop', 'RevitGeneratedFamilies').Replace('\', '\\'))",

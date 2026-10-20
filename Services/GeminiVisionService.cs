@@ -210,60 +210,106 @@ HYBRID PARAMETER EXTRACTION RULES:
 
         /// <summary>
         /// Robust deterministic local rule-based engine.
-        /// Synthesizes architectural components (workstation, door, window, table) without internet or API keys.
+        /// Synthesizes architectural components with smart Regex dimensional parsing from prompts even without an API key.
         /// </summary>
         public FamilySchema GenerateDeterministicFallback(string prompt)
         {
             string lower = prompt.ToLowerInvariant();
+            var dims = ExtractDimensionsFromPrompt(prompt);
 
-            if (lower.Contains("door"))
+            if (lower.Contains("baseplate") || lower.Contains("joint") || lower.Contains("bracket") || lower.Contains("plate"))
             {
-                return CreateDoorSchema();
+                return CreateBaseplateJointSchema(dims.w ?? 300, dims.d ?? 300, dims.thk ?? 25, dims.h ?? 300);
+            }
+            else if (lower.Contains("door"))
+            {
+                return CreateDoorSchema(dims.w ?? 900, dims.h ?? 2100, dims.thk ?? 44);
             }
             else if (lower.Contains("window"))
             {
-                return CreateWindowSchema();
+                return CreateWindowSchema(dims.w ?? 1200, dims.h ?? 1500, dims.d ?? 100);
             }
             else
             {
-                // Default to a high-end parametric Workstation with nested legs and parametric bindings
-                return CreateWorkstationSchema();
+                // Default to a parametric Workstation with dynamically extracted or standard dimensions
+                return CreateWorkstationSchema(dims.w ?? 1600, dims.d ?? 800, dims.h ?? 750, dims.thk ?? 30);
             }
         }
 
-        private FamilySchema CreateWorkstationSchema()
+        private static (double? w, double? d, double? h, double? thk) ExtractDimensionsFromPrompt(string prompt)
         {
-            var schema = new FamilySchema
+            double? w = null, d = null, h = null, thk = null;
+
+            // Pattern: 1800x900x750 or 1800 x 900 x 750
+            var tripleMatch = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (tripleMatch.Success)
+            {
+                if (double.TryParse(tripleMatch.Groups[1].Value, out double val1)) w = val1;
+                if (double.TryParse(tripleMatch.Groups[2].Value, out double val2)) d = val2;
+                if (double.TryParse(tripleMatch.Groups[3].Value, out double val3)) h = val3;
+            }
+            else
+            {
+                // Pattern: 900x2100 (Width x Height)
+                var doubleMatch = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (doubleMatch.Success)
+                {
+                    if (double.TryParse(doubleMatch.Groups[1].Value, out double val1)) w = val1;
+                    if (double.TryParse(doubleMatch.Groups[2].Value, out double val2)) h = val2;
+                }
+            }
+
+            // Keyword matches
+            var wm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:width|w)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (wm.Success && double.TryParse(wm.Groups[1].Value, out double vw)) w = vw;
+
+            var dm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:depth|d)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (dm.Success && double.TryParse(dm.Groups[1].Value, out double vd)) d = vd;
+
+            var hm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:height|h)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (hm.Success && double.TryParse(hm.Groups[1].Value, out double vh)) h = vh;
+
+            var thkm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:thickness|thick|thk)[:=\s]+(\d{1,4})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (thkm.Success && double.TryParse(thkm.Groups[1].Value, out double vthk)) thk = vthk;
+
+            return (w, d, h, thk);
+        }
+
+        private FamilySchema CreateWorkstationSchema(double width = 1600, double depth = 800, double height = 750, double topThk = 30)
+        {
+            double halfW = width / 2.0;
+            double halfD = depth / 2.0;
+            double legOffsetW = halfW - 50;
+            double legOffsetD = halfD - 50;
+
+            return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Workstation",
                 TemplateName = "Metric Furniture.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
-                    new() { Name = "Table_Width", DataType = "Length", DefaultValueMm = 1600, IsInstance = false },
-                    new() { Name = "Table_Depth", DataType = "Length", DefaultValueMm = 800, IsInstance = false },
-                    new() { Name = "Table_Height", DataType = "Length", DefaultValueMm = 750, IsInstance = false },
-                    new() { Name = "Top_Thickness", DataType = "Length", DefaultValueMm = 30, IsInstance = false },
-                    new() { Name = "Leg_Size", DataType = "Length", DefaultValueMm = 50, IsInstance = false }
+                    new() { Name = "Table_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Table_Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Table_Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Top_Thickness", DataType = "Length", DefaultValueMm = topThk },
+                    new() { Name = "Leg_Size", DataType = "Length", DefaultValueMm = 50 }
                 },
                 ReferencePlanes = new List<ReferencePlaneDef>
                 {
-                    new() { Name = "Left_Plane", Orientation = "X", OffsetFromOriginMm = -800, DrivenByParameter = "Table_Width" },
-                    new() { Name = "Right_Plane", Orientation = "X", OffsetFromOriginMm = 800, DrivenByParameter = "Table_Width" },
-                    new() { Name = "Front_Plane", Orientation = "Y", OffsetFromOriginMm = -400, DrivenByParameter = "Table_Depth" },
-                    new() { Name = "Back_Plane", Orientation = "Y", OffsetFromOriginMm = 400, DrivenByParameter = "Table_Depth" },
-                    new() { Name = "Top_Plane", Orientation = "Z", OffsetFromOriginMm = 750, DrivenByParameter = "Table_Height" }
+                    new() { Name = "Left_Plane", Orientation = "X", OffsetFromOriginMm = -halfW, DrivenByParameter = "Table_Width" },
+                    new() { Name = "Right_Plane", Orientation = "X", OffsetFromOriginMm = halfW, DrivenByParameter = "Table_Width" },
+                    new() { Name = "Front_Plane", Orientation = "Y", OffsetFromOriginMm = -halfD, DrivenByParameter = "Table_Depth" },
+                    new() { Name = "Back_Plane", Orientation = "Y", OffsetFromOriginMm = halfD, DrivenByParameter = "Table_Depth" },
+                    new() { Name = "Top_Plane", Orientation = "Z", OffsetFromOriginMm = height, DrivenByParameter = "Table_Height" }
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
                     new()
                     {
                         Name = "Table_Top_Panel",
-                        MinX_mm = -800,
-                        MaxX_mm = 800,
-                        MinY_mm = -400,
-                        MaxY_mm = 400,
-                        StartZ_mm = 720,
-                        EndZ_mm = 750,
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = height - topThk, EndZ_mm = height,
                         WidthParameter = "Table_Width",
                         DepthParameter = "Table_Depth",
                         HeightParameter = "Top_Thickness"
@@ -271,81 +317,60 @@ HYBRID PARAMETER EXTRACTION RULES:
                 },
                 NestedFamilies = new List<NestedFamilyDef>
                 {
-                    // Leg sub-component 1 (Front-Left)
                     new()
                     {
                         NestedFamilyName = "Workstation_Leg",
                         TemplateName = "Metric Generic Model.rft",
                         SubParameters = new List<MasterParameterDef>
                         {
-                            new() { Name = "Leg_Height", DataType = "Length", DefaultValueMm = 720, IsInstance = false },
-                            new() { Name = "Leg_Width", DataType = "Length", DefaultValueMm = 50, IsInstance = false }
+                            new() { Name = "Leg_Height", DataType = "Length", DefaultValueMm = height - topThk },
+                            new() { Name = "Leg_Width", DataType = "Length", DefaultValueMm = 50 }
                         },
                         SubExtrusions = new List<ExtrusionDef>
                         {
                             new()
                             {
                                 Name = "Leg_Solid",
-                                MinX_mm = -25,
-                                MaxX_mm = 25,
-                                MinY_mm = -25,
-                                MaxY_mm = 25,
-                                StartZ_mm = 0,
-                                EndZ_mm = 720,
-                                WidthParameter = "Leg_Width",
+                                ProfileType = "Cylinder",
+                                Radius_mm = 25,
+                                MinX_mm = -25, MaxX_mm = 25,
+                                MinY_mm = -25, MaxY_mm = 25,
+                                StartZ_mm = 0, EndZ_mm = height - topThk,
                                 HeightParameter = "Leg_Height"
                             }
                         },
-                        PlacementOffsetMm = new VectorOffsetDef(-750, -350, 0),
+                        PlacementOffsetMm = new VectorOffsetDef(-legOffsetW, -legOffsetD, 0),
                         ParameterBindings = new Dictionary<string, string>
                         {
-                            { "Leg_Height", "Table_Height" },
-                            { "Leg_Width", "Leg_Size" }
+                            { "Leg_Height", "Table_Height" }
                         }
                     },
-                    // Leg sub-component 2 (Front-Right)
                     new()
                     {
                         NestedFamilyName = "Workstation_Leg",
                         TemplateName = "Metric Generic Model.rft",
-                        PlacementOffsetMm = new VectorOffsetDef(750, -350, 0),
-                        ParameterBindings = new Dictionary<string, string>
-                        {
-                            { "Leg_Height", "Table_Height" },
-                            { "Leg_Width", "Leg_Size" }
-                        }
+                        PlacementOffsetMm = new VectorOffsetDef(legOffsetW, -legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Table_Height" } }
                     },
-                    // Leg sub-component 3 (Back-Left)
                     new()
                     {
                         NestedFamilyName = "Workstation_Leg",
                         TemplateName = "Metric Generic Model.rft",
-                        PlacementOffsetMm = new VectorOffsetDef(-750, 350, 0),
-                        ParameterBindings = new Dictionary<string, string>
-                        {
-                            { "Leg_Height", "Table_Height" },
-                            { "Leg_Width", "Leg_Size" }
-                        }
+                        PlacementOffsetMm = new VectorOffsetDef(-legOffsetW, legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Table_Height" } }
                     },
-                    // Leg sub-component 4 (Back-Right)
                     new()
                     {
                         NestedFamilyName = "Workstation_Leg",
                         TemplateName = "Metric Generic Model.rft",
-                        PlacementOffsetMm = new VectorOffsetDef(750, 350, 0),
-                        ParameterBindings = new Dictionary<string, string>
-                        {
-                            { "Leg_Height", "Table_Height" },
-                            { "Leg_Width", "Leg_Size" }
-                        }
+                        PlacementOffsetMm = new VectorOffsetDef(legOffsetW, legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Table_Height" } }
                     }
                 }
             };
-
-            return schema;
         }
 
-        private FamilySchema CreateDoorSchema()
+        private FamilySchema CreateDoorSchema(double width = 900, double height = 2100, double thickness = 44)
         {
             return new FamilySchema
             {
@@ -353,28 +378,18 @@ HYBRID PARAMETER EXTRACTION RULES:
                 TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
-                    new() { Name = "Door_Width", DataType = "Length", DefaultValueMm = 900, IsInstance = false },
-                    new() { Name = "Door_Height", DataType = "Length", DefaultValueMm = 2100, IsInstance = false },
-                    new() { Name = "Door_Thickness", DataType = "Length", DefaultValueMm = 45, IsInstance = false },
-                    new() { Name = "Handle_Height", DataType = "Length", DefaultValueMm = 1000, IsInstance = false }
-                },
-                ReferencePlanes = new List<ReferencePlaneDef>
-                {
-                    new() { Name = "Left_Edge", Orientation = "X", OffsetFromOriginMm = 0, DrivenByParameter = null },
-                    new() { Name = "Right_Edge", Orientation = "X", OffsetFromOriginMm = 900, DrivenByParameter = "Door_Width" },
-                    new() { Name = "Top_Edge", Orientation = "Z", OffsetFromOriginMm = 2100, DrivenByParameter = "Door_Height" }
+                    new() { Name = "Door_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Door_Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Door_Thickness", DataType = "Length", DefaultValueMm = thickness }
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
                     new()
                     {
-                        Name = "Door_Panel_Extrusion",
-                        MinX_mm = 0,
-                        MaxX_mm = 900,
-                        MinY_mm = 0,
-                        MaxY_mm = 45,
-                        StartZ_mm = 0,
-                        EndZ_mm = 2100,
+                        Name = "Door_Panel",
+                        MinX_mm = 0, MaxX_mm = width,
+                        MinY_mm = 0, MaxY_mm = thickness,
+                        StartZ_mm = 0, EndZ_mm = height,
                         WidthParameter = "Door_Width",
                         DepthParameter = "Door_Thickness",
                         HeightParameter = "Door_Height"
@@ -388,65 +403,129 @@ HYBRID PARAMETER EXTRACTION RULES:
                         TemplateName = "Metric Generic Model.rft",
                         SubParameters = new List<MasterParameterDef>
                         {
-                            new() { Name = "Handle_Length", DataType = "Length", DefaultValueMm = 120, IsInstance = false }
+                            new() { Name = "Handle_Length", DataType = "Length", DefaultValueMm = 120 }
                         },
                         SubExtrusions = new List<ExtrusionDef>
                         {
                             new()
                             {
-                                Name = "Handle_Shaft",
-                                MinX_mm = 0,
-                                MaxX_mm = 120,
-                                MinY_mm = 0,
-                                MaxY_mm = 20,
-                                StartZ_mm = 0,
-                                EndZ_mm = 20,
-                                WidthParameter = "Handle_Length"
+                                Name = "Handle_Lever",
+                                ProfileType = "Cylinder",
+                                Radius_mm = 10,
+                                MinX_mm = 0, MaxX_mm = 120,
+                                MinY_mm = 0, MaxY_mm = 20,
+                                StartZ_mm = 0, EndZ_mm = 20
                             }
                         },
-                        PlacementOffsetMm = new VectorOffsetDef(800, 45, 1000),
+                        PlacementOffsetMm = new VectorOffsetDef(width - 80, thickness + 10, 1000),
                         ParameterBindings = new Dictionary<string, string>()
                     }
                 }
             };
         }
 
-        private FamilySchema CreateWindowSchema()
+        private FamilySchema CreateWindowSchema(double width = 1200, double height = 1500, double depth = 100)
         {
+            double halfW = width / 2.0;
+
             return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Window_Casement",
                 TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
-                    new() { Name = "Window_Width", DataType = "Length", DefaultValueMm = 1200, IsInstance = false },
-                    new() { Name = "Window_Height", DataType = "Length", DefaultValueMm = 1500, IsInstance = false },
-                    new() { Name = "Frame_Depth", DataType = "Length", DefaultValueMm = 100, IsInstance = false },
-                    new() { Name = "Frame_Width", DataType = "Length", DefaultValueMm = 65, IsInstance = false }
-                },
-                ReferencePlanes = new List<ReferencePlaneDef>
-                {
-                    new() { Name = "Frame_Left", Orientation = "X", OffsetFromOriginMm = -600, DrivenByParameter = "Window_Width" },
-                    new() { Name = "Frame_Right", Orientation = "X", OffsetFromOriginMm = 600, DrivenByParameter = "Window_Width" },
-                    new() { Name = "Frame_Top", Orientation = "Z", OffsetFromOriginMm = 1500, DrivenByParameter = "Window_Height" }
+                    new() { Name = "Window_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Window_Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Frame_Depth", DataType = "Length", DefaultValueMm = depth }
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
                     new()
                     {
                         Name = "Outer_Frame",
-                        MinX_mm = -600,
-                        MaxX_mm = 600,
-                        MinY_mm = -50,
-                        MaxY_mm = 50,
-                        StartZ_mm = 0,
-                        EndZ_mm = 1500,
+                        ProfileType = "HollowBox",
+                        WallThickness_mm = 50,
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -depth / 2.0, MaxY_mm = depth / 2.0,
+                        StartZ_mm = 0, EndZ_mm = height,
                         WidthParameter = "Window_Width",
                         DepthParameter = "Frame_Depth",
                         HeightParameter = "Window_Height"
                     }
                 },
                 NestedFamilies = new List<NestedFamilyDef>()
+            };
+        }
+
+        private FamilySchema CreateBaseplateJointSchema(double width = 300, double depth = 300, double plateThk = 25, double stubHeight = 300)
+        {
+            double halfW = width / 2.0;
+            double halfD = depth / 2.0;
+            double boltOffsetW = halfW - 45;
+            double boltOffsetD = halfD - 45;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = "Parametric_Column_Baseplate",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Plate_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Plate_Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Plate_Thickness", DataType = "Length", DefaultValueMm = plateThk }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Baseplate solid
+                    new()
+                    {
+                        Name = "Steel_Baseplate",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = 0, EndZ_mm = plateThk
+                    },
+                    // Column hollow stub
+                    new()
+                    {
+                        Name = "Column_Hollow_Stub",
+                        ProfileType = "HollowBox",
+                        WallThickness_mm = 8,
+                        MinX_mm = -halfW + 75, MaxX_mm = halfW - 75,
+                        MinY_mm = -halfD + 75, MaxY_mm = halfD - 75,
+                        StartZ_mm = plateThk, EndZ_mm = plateThk + stubHeight
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = "Anchor_Bolt",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new() { Name = "Bolt_Shaft", ProfileType = "Cylinder", Radius_mm = 10, StartZ_mm = 0, EndZ_mm = plateThk + 50 }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(-boltOffsetW, -boltOffsetD, 0)
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Anchor_Bolt",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(boltOffsetW, -boltOffsetD, 0)
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Anchor_Bolt",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(-boltOffsetW, boltOffsetD, 0)
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Anchor_Bolt",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(boltOffsetW, boltOffsetD, 0)
+                    }
+                }
             };
         }
 

@@ -46,13 +46,37 @@ HYBRID PARAMETER EXTRACTION RULES:
 4. GEOMETRY & PROFILES:
    - Supported profile_type values: 'Rectangle', 'Cylinder' (specify radius_mm, min_x_mm/min_y_mm as center), and 'HollowBox' (specify wall_thickness_mm for frames/tubes).
    - StartZ and EndZ define vertical extrusion limits.
-5. ARCHITECTURAL TYPOLOGY DECOMPOSITION:
-   - Casement Window: Outer perimeter frame (HollowBox) + nested operable sash frame + glass infill + handle/crank hardware.
-   - Double-Hung Window: Outer master frame + Upper Sash nested at top half + Lower Sash nested at bottom half overlapping at Meeting Rail.
-   - Sliding / Glider Window: Outer frame with sill track + Left/Right sliding sash modules + interlock rails.
-   - Fixed / Picture Window: Solid perimeter frame (HollowBox) with direct central glass infill extrusion.
-   - Awning / Hopper Window: Top-hung or bottom-hung perimeter sash with friction hinge hardware.
-   - Doors & FF&E: Apply equivalent architectural assemblies (e.g. leaf + nested frame + hardware, or carcass + nested drawers/legs).
+5. UNIVERSAL AEC TYPOLOGY DECOMPOSITION (APPLIES TO ALL CATEGORIES):
+   Whenever any architectural, structural, or interior type is named, synthesize its canonical BIM hierarchy:
+   - WINDOWS:
+     * Casement: Outer perimeter frame (HollowBox) + nested operable sash + glass infill + handle/crank.
+     * Double-Hung: Master frame + Upper Sash nested at top + Lower Sash nested at bottom overlapping at Meeting Rail.
+     * Sliding / Glider: Perimeter frame with sill track + bypass sliding sashes with interlock stiles.
+     * Fixed / Picture: Perimeter frame (HollowBox) with direct central glass infill.
+     * Awning / Hopper: Top/bottom hinged perimeter sash with friction hinges.
+   - DOORS:
+     * Single / Double Swing: Perimeter jambs/frame + leaf/leaves (with thickness) + nested lever handle/push-pull hardware.
+     * Pivot Door: Oversized leaf + offset top/bottom pivot spindle hardware + recessed floor closer.
+     * Sliding Barn / Pocket Door: Leaf panel + overhead track extrusion + nested roller hangers/guides.
+   - CASEWORK & CABINETRY:
+     * Base Cabinet: Recessed toe-kick base (StartZ=0 to 100mm) + box carcass + countertop slab + nested doors/drawers with pulls.
+     * Upper / Wall Cabinet: Wall-hung carcass box + nested hinged front doors + internal shelves.
+     * Credenza / Sideboard: Outer casing/wrap + nested leg frame/plinths + sliding or hinged door panels.
+   - TABLES & DESKING:
+     * Workstation / Desk: Tabletop slab + modesty panel + 4 nested legs (cylindrical or hollow tube) + cable port grommets.
+     * Conference Table: Large multi-section slab or boat-shape + heavy pedestal stubs or perimeter base + power/data troughs.
+     * Pedestal / Cafe Table: Central cylindrical column + circular/cross ground base + top plate.
+   - SEATING & FURNITURE:
+     * Task Chair: Cushioned seat slab + contoured backrest + 5-star spider base with cylindrical gas lift and casters.
+     * Lounge Chair / Sofa: Upholstered carcass + seat/back cushions + nested timber/metal leg base.
+     * Bench: Solid timber/metal bench slab + end trestle legs or U-frame supports.
+   - STRUCTURAL & FACADE JOINTS:
+     * Column Baseplate: Solid steel plate extrusion + central hollow column stub + 4 nested anchor bolts (Cylinder) with nuts/washers.
+     * Beam Clip Angle / Shear Tab: Flange/web angle plate + nested bolt arrays.
+     * Facade Spider Fitting: Central structural boss + 2 or 4 articulated spider arms with glass bolt standoffs.
+   - BALUSTRADES & SCREENING:
+     * Glass Guardrail: Continuous base shoe channel (HollowBox) + vertical glass infill panel + top cap rail.
+     * Louver Screen: Outer framing channel + arrayed angled louver blades (Extrusions).
 6. NESTED SUB-COMPONENTS & PARAMETER BINDINGS:
    - Decompose repetitive or distinct components (e.g., sashes, legs, caster wheels, door handles, mullions) into 'nested_families'.
    - In each nested family, specify 'parameter_bindings' mapping sub-component parameters to host master parameters (e.g., {'Sash_Width': 'Window_Width'}).

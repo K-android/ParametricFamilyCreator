@@ -302,6 +302,11 @@ namespace ParametricFamilyForge.UI
 
                 UpdateJsonPreview(schema);
                 LogMessage($"Successfully synthesized schema for '{schema.MasterFamilyName}'!");
+
+                if (!string.IsNullOrEmpty(_geminiService.LastUsageSummary))
+                {
+                    LogMessage($"[Token Economy] {_geminiService.LastUsageSummary} (~$0.0001 per run).");
+                }
             }
             catch (Exception ex)
             {

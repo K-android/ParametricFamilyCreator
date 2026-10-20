@@ -19,6 +19,11 @@ namespace ParametricFamilyForge.Services
         private readonly HttpClient _httpClient;
         private const string DefaultGeminiModel = "gemini-3.8";
 
+        /// <summary>
+        /// Real-time token consumption metrics from the last Gemini API call.
+        /// </summary>
+        public string? LastUsageSummary { get; private set; }
+
         public GeminiVisionService(HttpClient? httpClient = null)
         {
             _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
@@ -143,7 +148,8 @@ HYBRID PARAMETER EXTRACTION RULES:
                 generationConfig = new
                 {
                     temperature = ClampDouble(temperature, 0.0, 1.0),
-                    response_mime_type = "application/json"
+                    response_mime_type = "application/json",
+                    max_output_tokens = 2500
                 }
             };
 
@@ -166,6 +172,19 @@ HYBRID PARAMETER EXTRACTION RULES:
         {
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
+
+            // Extract real-time token usage metrics for token economy monitoring
+            if (root.TryGetProperty("usageMetadata", out var usage))
+            {
+                int pt = usage.TryGetProperty("promptTokenCount", out var pProp) ? pProp.GetInt32() : 0;
+                int ct = usage.TryGetProperty("candidatesTokenCount", out var cProp) ? cProp.GetInt32() : 0;
+                int tt = usage.TryGetProperty("totalTokenCount", out var tProp) ? tProp.GetInt32() : 0;
+                LastUsageSummary = $"Total: {tt} tokens (Input: {pt}, Output: {ct})";
+            }
+            else
+            {
+                LastUsageSummary = null;
+            }
 
             if (root.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
             {

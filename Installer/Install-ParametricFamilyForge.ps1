@@ -15,7 +15,7 @@ $Host.UI.RawUI.WindowTitle = "ParametricFamilyForge Installer"
 
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host "        PARAMETRIC FAMILY FORGE — ONE-CLICK INSTALLER           " -ForegroundColor White
-Write-Host "             Autodesk Revit 2025 & 2026 Add-in                  " -ForegroundColor Gray
+Write-Host "             Autodesk Revit 2024 / 2025 / 2026 Add-in           " -ForegroundColor Gray
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host ""
 

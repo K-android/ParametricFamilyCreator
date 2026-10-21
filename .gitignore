@@ -1,5 +1,4 @@
-# Build outputs
-bin/
+# Build intermediate outputs
 obj/
 *.user
 *.suo

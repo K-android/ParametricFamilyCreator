@@ -12,38 +12,29 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ParametricFamilyForge</RootNamespace>
     <AssemblyName>ParametricFamilyForge</AssemblyName>
-    
-    <!-- Revit build paths by version -->
-    <RevitVersion Condition="'$(RevitVersion)' == '' and '$(TargetFramework)' == 'net48'">2024</RevitVersion>
-    <RevitVersion Condition="'$(RevitVersion)' == '' and '$(TargetFramework)' == 'net8.0-windows'">2025</RevitVersion>
-    <RevitInstallPath Condition="'$(RevitInstallPath)' == ''">C:\Program Files\Autodesk\Revit $(RevitVersion)</RevitInstallPath>
   </PropertyGroup>
 
-  <!-- Reference Revit API DLLs -->
+  <!-- Exclude installer sources from the add-in compilation -->
   <ItemGroup>
-    <Reference Include="RevitAPI">
-      <HintPath>$(RevitInstallPath)\RevitAPI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="RevitAPIUI">
-      <HintPath>$(RevitInstallPath)\RevitAPIUI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
+    <Compile Remove="Installer\**" />
+    <None Include="Installer\**" />
   </ItemGroup>
 
-  <!-- Nuget dependencies compatible across .NET 8 and .NET Framework 4.8 -->
-  <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
-  </ItemGroup>
-
+  <!-- Revit API NuGet references (enables cloud & local builds without requiring local Revit installation) -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.2.0" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.2.0" />
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
-  <!-- Post build event to copy .addin manifest to Revit Addins folder -->
-  <Target Name="CopyAddinManifest" AfterTargets="Build" Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)')">
-    <Copy SourceFiles="$(ProjectDir)ParametricFamilyForge.addin" 
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)" />
-  </Target>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.3.0" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.3.0" />
+  </ItemGroup>
+
+  <!-- System dependencies -->
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
 
 </Project>

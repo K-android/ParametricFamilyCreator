@@ -160,11 +160,11 @@ HYBRID PARAMETER EXTRACTION RULES:
 
             if (!response.IsSuccessStatusCode)
             {
-                string errorMsg = await response.Content.ReadAsStringAsync(cancellationToken);
+                string errorMsg = await response.Content.ReadAsStringAsync();
                 throw new InvalidOperationException($"Gemini API Error ({response.StatusCode}): {errorMsg}");
             }
 
-            string rawJsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+            string rawJsonResponse = await response.Content.ReadAsStringAsync();
             return ParseGeminiResponse(rawJsonResponse);
         }
 

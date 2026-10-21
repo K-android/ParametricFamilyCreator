@@ -210,10 +210,16 @@ namespace ParametricFamilyForge.Setup
                         string packageDir = Path.Combine(yearAddinDir, "ParametricFamilyForge");
                         if (!Directory.Exists(packageDir)) Directory.CreateDirectory(packageDir);
 
-                        // Locate binaries
-                        string tfm = (year == "2024") ? "net48" : "net8.0-windows";
-                        string sourceBinDir = Path.Combine(currentDir, "bin", "Release", tfm);
-                        if (!Directory.Exists(sourceBinDir)) sourceBinDir = Path.Combine(currentDir, "bin", "Debug", tfm);
+                        // Locate pre-compiled binaries
+                        string sourceBinDir = (year == "2024")
+                            ? Path.Combine(currentDir, "Release_Binaries", "Revit_2024")
+                            : Path.Combine(currentDir, "Release_Binaries", "Revit_2025_2026");
+
+                        if (!Directory.Exists(sourceBinDir))
+                        {
+                            string tfm = (year == "2024") ? "net48" : "net8.0-windows";
+                            sourceBinDir = Path.Combine(currentDir, "bin", "Release", tfm);
+                        }
                         if (!Directory.Exists(sourceBinDir)) sourceBinDir = currentDir;
 
                         string installedDllPath = Path.Combine(packageDir, "ParametricFamilyForge.dll");

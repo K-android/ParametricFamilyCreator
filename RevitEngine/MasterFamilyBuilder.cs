@@ -165,7 +165,7 @@ namespace ParametricFamilyForge.RevitEngine
             using (Transaction projectTrans = new Transaction(activeProjectDoc, $"Load Family {schema.MasterFamilyName}"))
             {
                 projectTrans.Start();
-                masterDoc.LoadFamily(activeProjectDoc, new FamilyLoadOptions(), out Family loadedProjectFamily);
+                activeProjectDoc.LoadFamily(masterRfaPath, new FamilyLoadOptions(), out Family loadedProjectFamily);
                 projectTrans.Commit();
             }
 

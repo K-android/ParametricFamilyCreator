@@ -23,21 +23,7 @@ namespace ParametricFamilyForge.RevitEngine
             if (uiApp == null) throw new ArgumentNullException(nameof(uiApp));
             if (nestedDef == null) throw new ArgumentNullException(nameof(nestedDef));
 
-            string templatePath = Path.Combine(templateDirectoryPath, nestedDef.TemplateName);
-            if (!File.Exists(templatePath))
-            {
-                // Fallback search in standard Autodesk family templates directory if not found in custom folder
-                string defaultTemplates = @"C:\ProgramData\Autodesk\RVT 2025\Family Templates\English";
-                string altPath = Path.Combine(defaultTemplates, nestedDef.TemplateName);
-                if (File.Exists(altPath))
-                {
-                    templatePath = altPath;
-                }
-                else
-                {
-                    throw new FileNotFoundException($"Family template not found: '{nestedDef.TemplateName}'. Looked in '{templateDirectoryPath}' and '{defaultTemplates}'.");
-                }
-            }
+            string templatePath = TemplateResolver.Resolve(uiApp, nestedDef.TemplateName, templateDirectoryPath);
 
             Document familyDoc = uiApp.Application.NewFamilyDocument(templatePath);
             if (familyDoc == null)

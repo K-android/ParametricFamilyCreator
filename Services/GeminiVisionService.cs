@@ -91,6 +91,8 @@ HYBRID PARAMETER EXTRACTION RULES:
 
         /// <summary>
         /// Sends prompt and optional image to Gemini API and receives a validated FamilySchema.
+        /// Features multi-model fallback (e.g. gemini-3.8 -> gemini-2.0-flash -> gemini-1.5-flash)
+        /// so it never fails due to endpoint name mismatches.
         /// </summary>
         public async Task<FamilySchema> GenerateFamilySchemaAsync(
             string apiKey, 
@@ -106,11 +108,9 @@ HYBRID PARAMETER EXTRACTION RULES:
                 return GenerateDeterministicFallback(userPrompt);
             }
 
-            string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={apiKey}";
-
             var parts = new List<object>();
 
-            // If an image is provided, encode to base64
+            // If an image or PDF is provided, encode to base64
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
                 byte[] imageBytes = await ReadAllBytesCompatAsync(imageFilePath, cancellationToken);
@@ -154,18 +154,59 @@ HYBRID PARAMETER EXTRACTION RULES:
             };
 
             string jsonPayload = JsonSerializer.Serialize(requestBody);
-            using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response = await _httpClient.PostAsync(endpoint, content, cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
+            // Candidate models to try in sequence
+            var candidateModels = new List<string>();
+            string cleanModel = modelName.Trim();
+            
+            // Map 3.8 / 3.6 aliases or add them first
+            if (cleanModel.Contains("3.8") || cleanModel.Contains("3.6"))
             {
-                string errorMsg = await response.Content.ReadAsStringAsync();
-                throw new InvalidOperationException($"Gemini API Error ({response.StatusCode}): {errorMsg}");
+                candidateModels.Add("gemini-2.0-flash");
+                candidateModels.Add("gemini-1.5-flash");
+            }
+            else
+            {
+                candidateModels.Add(cleanModel);
+                if (!cleanModel.Equals("gemini-2.0-flash", StringComparison.OrdinalIgnoreCase))
+                    candidateModels.Add("gemini-2.0-flash");
+                if (!cleanModel.Equals("gemini-1.5-flash", StringComparison.OrdinalIgnoreCase))
+                    candidateModels.Add("gemini-1.5-flash");
             }
 
-            string rawJsonResponse = await response.Content.ReadAsStringAsync();
-            return ParseGeminiResponse(rawJsonResponse);
+            string lastError = "";
+
+            foreach (var targetModel in candidateModels)
+            {
+                try
+                {
+                    string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
+                    using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                    HttpResponseMessage response = await _httpClient.PostAsync(endpoint, content, cancellationToken);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string rawJsonResponse = await response.Content.ReadAsStringAsync();
+                        return ParseGeminiResponse(rawJsonResponse);
+                    }
+
+                    string errorMsg = await response.Content.ReadAsStringAsync();
+                    lastError = $"[{targetModel} - {response.StatusCode}]: {errorMsg}";
+
+                    // If 404 (model not found), try next model in candidate list
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        continue;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex.Message;
+                }
+            }
+
+            throw new InvalidOperationException($"Gemini API Error: {lastError}\n\nPlease verify your API key at aistudio.google.com.");
         }
 
         private FamilySchema ParseGeminiResponse(string rawJson)
@@ -210,6 +251,14 @@ HYBRID PARAMETER EXTRACTION RULES:
                         textContent = textContent.Substring(0, textContent.Length - 3);
                     }
                     textContent = textContent.Trim();
+
+                    // Extract pure JSON object bounded by outermost braces
+                    int firstBrace = textContent.IndexOf('{');
+                    int lastBrace = textContent.LastIndexOf('}');
+                    if (firstBrace >= 0 && lastBrace > firstBrace)
+                    {
+                        textContent = textContent.Substring(firstBrace, lastBrace - firstBrace + 1);
+                    }
 
                     var options = new JsonSerializerOptions
                     {

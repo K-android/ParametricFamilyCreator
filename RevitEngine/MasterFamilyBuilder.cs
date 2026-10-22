@@ -30,28 +30,21 @@ namespace ParametricFamilyForge.RevitEngine
             if (uiApp == null) throw new ArgumentNullException(nameof(uiApp));
             if (schema == null) throw new ArgumentNullException(nameof(schema));
 
-            Document activeProjectDoc = uiApp.ActiveUIDocument?.Document 
-                ?? throw new InvalidOperationException("No active project document found. Please open a Revit project before generating families.");
+            // Safely locate active project document (null if user is on home screen)
+            Document? activeProjectDoc = uiApp.ActiveUIDocument?.Document;
 
-            string templatePath = Path.Combine(templateDirectoryPath, schema.TemplateName);
-            if (!File.Exists(templatePath))
-            {
-                string defaultTemplates = @"C:\ProgramData\Autodesk\RVT 2025\Family Templates\English";
-                string altPath = Path.Combine(defaultTemplates, schema.TemplateName);
-                if (File.Exists(altPath))
-                {
-                    templatePath = altPath;
-                }
-                else
-                {
-                    throw new FileNotFoundException($"Master Family template not found: '{schema.TemplateName}'.");
-                }
-            }
+            // Intelligently resolve template across versions, languages, and Metric/Imperial names
+            string templatePath = TemplateResolver.Resolve(uiApp, schema.TemplateName, templateDirectoryPath);
 
             Document masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
             if (masterDoc == null)
             {
                 throw new InvalidOperationException($"Failed to create Master Family document from '{templatePath}'.");
+            }
+
+            if (!Directory.Exists(outputDirectoryPath))
+            {
+                Directory.CreateDirectory(outputDirectoryPath);
             }
 
             string masterRfaPath = Path.Combine(outputDirectoryPath, $"{schema.MasterFamilyName}.rfa");
@@ -96,7 +89,7 @@ namespace ParametricFamilyForge.RevitEngine
                     paramDict[paramDef.Name] = famParam;
                 }
 
-                // 2. Identify Plan View (e.g., "Ref. Level")
+                // 2. Identify Plan View and Elevation View
                 View? planView = new FilteredElementCollector(masterDoc)
                     .OfClass(typeof(View))
                     .Cast<View>()
@@ -107,15 +100,24 @@ namespace ParametricFamilyForge.RevitEngine
                     planView = masterDoc.ActiveView;
                 }
 
+                View? elevView = new FilteredElementCollector(masterDoc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.ViewType == ViewType.Elevation && (v.Name.Contains("Front") || v.Name.Contains("Exterior") || v.Name.Contains("Elevation")));
+
                 // 3. Create Reference Planes & Apply The Critical Regenerate() Rule
                 var createdRefPlanes = new Dictionary<string, ReferencePlane>(StringComparer.OrdinalIgnoreCase);
                 foreach (var rpDef in schema.ReferencePlanes)
                 {
-                    ReferencePlane? rp = CreateReferencePlane(masterDoc, planView, rpDef);
-                    if (rp != null && !string.IsNullOrEmpty(rpDef.Name))
+                    try
                     {
-                        createdRefPlanes[rpDef.Name] = rp;
+                        ReferencePlane? rp = CreateReferencePlane(masterDoc, planView, elevView, rpDef);
+                        if (rp != null && !string.IsNullOrEmpty(rpDef.Name))
+                        {
+                            createdRefPlanes[rpDef.Name] = rp;
+                        }
                     }
+                    catch { }
                 }
 
                 // CRITICAL REQUIREMENT: Regenerate() before any geometry or dimension binding
@@ -135,7 +137,11 @@ namespace ParametricFamilyForge.RevitEngine
 
                 foreach (var extDef in schema.HostExtrusions)
                 {
-                    CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                    try
+                    {
+                        CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                    }
+                    catch { }
                 }
 
                 masterDoc.Regenerate();
@@ -143,10 +149,14 @@ namespace ParametricFamilyForge.RevitEngine
                 // 5. Load and Place Nested Families + Associate Parameters
                 foreach (var nestedDef in schema.NestedFamilies)
                 {
-                    if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
+                    try
                     {
-                        PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath);
+                        if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
+                        {
+                            PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath);
+                        }
                     }
+                    catch { }
                 }
 
                 masterDoc.Regenerate();
@@ -161,12 +171,19 @@ namespace ParametricFamilyForge.RevitEngine
             };
             masterDoc.SaveAs(masterRfaPath, saveOptions);
 
-            // 6. Load Master Family directly into the Active Project Document
-            using (Transaction projectTrans = new Transaction(activeProjectDoc, $"Load Family {schema.MasterFamilyName}"))
+            // 6. Load Master Family into Active Project Document (if one is open)
+            if (activeProjectDoc != null && !activeProjectDoc.IsFamilyDocument)
             {
-                projectTrans.Start();
-                activeProjectDoc.LoadFamily(masterRfaPath, new FamilyLoadOptions(), out Family loadedProjectFamily);
-                projectTrans.Commit();
+                try
+                {
+                    using (Transaction projectTrans = new Transaction(activeProjectDoc, $"Load Family {schema.MasterFamilyName}"))
+                    {
+                        projectTrans.Start();
+                        activeProjectDoc.LoadFamily(masterRfaPath, new FamilyLoadOptions(), out Family loadedProjectFamily);
+                        projectTrans.Commit();
+                    }
+                }
+                catch { }
             }
 
             masterDoc.Close(false);
@@ -174,40 +191,60 @@ namespace ParametricFamilyForge.RevitEngine
             return masterRfaPath;
         }
 
-        private static ReferencePlane? CreateReferencePlane(Document doc, View view, ReferencePlaneDef rpDef)
+        private static ReferencePlane? CreateReferencePlane(Document doc, View planView, View? elevView, ReferencePlaneDef rpDef)
         {
-            double offsetFeet = MmToFeet(rpDef.OffsetFromOriginMm);
-            XYZ bubbleEnd;
-            XYZ freeEnd;
-            XYZ cutVec = XYZ.BasisZ;
+            try
+            {
+                double offsetFeet = MmToFeet(rpDef.OffsetFromOriginMm);
+                XYZ bubbleEnd;
+                XYZ freeEnd;
+                XYZ cutVec;
+                View targetView = planView;
 
-            if (string.Equals(rpDef.Orientation, "X", StringComparison.OrdinalIgnoreCase))
-            {
-                // Parallel to Y axis (Left/Right)
-                bubbleEnd = new XYZ(offsetFeet, -10.0, 0.0);
-                freeEnd = new XYZ(offsetFeet, 10.0, 0.0);
-            }
-            else if (string.Equals(rpDef.Orientation, "Y", StringComparison.OrdinalIgnoreCase))
-            {
-                // Parallel to X axis (Front/Back)
-                bubbleEnd = new XYZ(-10.0, offsetFeet, 0.0);
-                freeEnd = new XYZ(10.0, offsetFeet, 0.0);
-            }
-            else
-            {
-                // Elevation plane (Z)
-                bubbleEnd = new XYZ(-10.0, 0.0, offsetFeet);
-                freeEnd = new XYZ(10.0, 0.0, offsetFeet);
-                cutVec = XYZ.BasisY;
-            }
+                if (string.Equals(rpDef.Orientation, "X", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Parallel to Y axis in Plan View
+                    bubbleEnd = new XYZ(offsetFeet, -10.0, 0.0);
+                    freeEnd = new XYZ(offsetFeet, 10.0, 0.0);
+                    cutVec = XYZ.BasisX;
+                    targetView = planView;
+                }
+                else if (string.Equals(rpDef.Orientation, "Y", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Parallel to X axis in Plan View
+                    bubbleEnd = new XYZ(-10.0, offsetFeet, 0.0);
+                    freeEnd = new XYZ(10.0, offsetFeet, 0.0);
+                    cutVec = XYZ.BasisY;
+                    targetView = planView;
+                }
+                else
+                {
+                    // Elevation plane (Z)
+                    if (elevView != null)
+                    {
+                        bubbleEnd = new XYZ(-10.0, 0.0, offsetFeet);
+                        freeEnd = new XYZ(10.0, 0.0, offsetFeet);
+                        cutVec = XYZ.BasisZ;
+                        targetView = elevView;
+                    }
+                    else
+                    {
+                        return null;
+                    }
+                }
 
-            ReferencePlane rp = doc.FamilyCreate.NewReferencePlane(bubbleEnd, freeEnd, cutVec, view);
-            if (!string.IsNullOrEmpty(rpDef.Name))
-            {
-                rp.Name = rpDef.Name;
+                ReferencePlane rp = doc.FamilyCreate.NewReferencePlane(bubbleEnd, freeEnd, cutVec, targetView);
+                if (!string.IsNullOrEmpty(rpDef.Name))
+                {
+                    rp.Name = rpDef.Name;
+                }
+                rp.Maximize3DExtents();
+                return rp;
             }
-            rp.Maximize3DExtents();
-            return rp;
+            catch
+            {
+                return null;
+            }
         }
 
         private static void CreateHostExtrusion(

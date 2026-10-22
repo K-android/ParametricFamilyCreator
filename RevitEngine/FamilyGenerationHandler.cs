@@ -13,8 +13,8 @@ namespace ParametricFamilyForge.RevitEngine
     public class FamilyGenerationHandler : IExternalEventHandler
     {
         public FamilySchema? CurrentSchema { get; set; }
-        public string TemplateDirectory { get; set; } = @"C:\ProgramData\Autodesk\RVT 2025\Family Templates\English";
-        public string OutputDirectory { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        public string TemplateDirectory { get; set; } = string.Empty;
+        public string OutputDirectory { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "RevitGeneratedFamilies");
 
         public Action<string>? OnLog { get; set; }
         public Action<bool, string>? OnCompleted { get; set; }
@@ -30,7 +30,13 @@ namespace ParametricFamilyForge.RevitEngine
 
             try
             {
+                if (string.IsNullOrWhiteSpace(TemplateDirectory) || !Directory.Exists(TemplateDirectory))
+                {
+                    TemplateDirectory = TemplateResolver.GetBestDefaultTemplateDirectory(uiApp);
+                }
+
                 OnLog?.Invoke($"[REVIT THREAD] Initiating family generation for '{CurrentSchema.MasterFamilyName}'...");
+                OnLog?.Invoke($"[REVIT THREAD] Using template root: '{TemplateDirectory}'");
 
                 // 1. Generate unique nested families
                 var nestedRfaMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

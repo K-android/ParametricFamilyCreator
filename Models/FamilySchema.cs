@@ -13,6 +13,9 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("master_family_name")]
         public string MasterFamilyName { get; set; } = "ParametricHostFamily";
 
+        [JsonPropertyName("family_category")]
+        public string FamilyCategory { get; set; } = "Generic Models";
+
         [JsonPropertyName("template_name")]
         public string TemplateName { get; set; } = "Metric Generic Model.rft";
 

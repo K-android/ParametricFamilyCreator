@@ -14,7 +14,7 @@ param(
 $Host.UI.RawUI.WindowTitle = "ParametricFamilyForge Installer"
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "        PARAMETRIC FAMILY FORGE — ONE-CLICK INSTALLER           " -ForegroundColor White
+Write-Host "        PARAMETRIC FAMILY FORGE - ONE-CLICK INSTALLER           " -ForegroundColor White
 Write-Host "             Autodesk Revit 2024 / 2025 / 2026 Add-in           " -ForegroundColor Gray
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -127,25 +127,32 @@ foreach ($year in $DetectedYears) {
         }
     }
 
+    # Copy Bundled Templates
+    $tplSourceDir = Join-Path $ProjectDir "Templates"
+    if (Test-Path $tplSourceDir) {
+        $pkgTplDir = Join-Path $targetPackageDir "Templates"
+        if (-not (Test-Path $pkgTplDir)) { New-Item -ItemType Directory -Path $pkgTplDir -Force | Out-Null }
+        Copy-Item -Path "$tplSourceDir\*" -Destination $pkgTplDir -Force
+    }
+
     # Write Manifest with configured Assembly path
     $manifestPath = Join-Path $targetAddinDir "ParametricFamilyForge.addin"
     $installedAssemblyPath = Join-Path $targetPackageDir "ParametricFamilyForge.dll"
 
-    $manifestXml = @"
-<?xml version="1.0" encoding="utf-8" standalone="no"?>
-<RevitAddIns>
-  <AddIn Type="Application">
-    <Name>ParametricFamilyForge</Name>
-    <Assembly>$installedAssemblyPath</Assembly>
-    <AddInId>8B145E9F-349C-4D2A-9447-0F89E88E4B17</AddInId>
-    <FullClassName>ParametricFamilyForge.App</FullClassName>
-    <VendorId>AECFORGE</VendorId>
-    <VendorDescription>Parametric Family Forge - AI-Driven Revit Family Generator</VendorDescription>
-  </AddIn>
-</RevitAddIns>
-"@
+    $xmlLines = New-Object System.Collections.Generic.List[string]
+    $xmlLines.Add('<?xml version="1.0" encoding="utf-8" standalone="no"?>')
+    $xmlLines.Add('<RevitAddIns>')
+    $xmlLines.Add('  <AddIn Type="Application">')
+    $xmlLines.Add('    <Name>ParametricFamilyForge</Name>')
+    $xmlLines.Add('    <Assembly>' + $installedAssemblyPath + '</Assembly>')
+    $xmlLines.Add('    <AddInId>8B145E9F-349C-4D2A-9447-0F89E88E4B17</AddInId>')
+    $xmlLines.Add('    <FullClassName>ParametricFamilyForge.App</FullClassName>')
+    $xmlLines.Add('    <VendorId>AECFORGE</VendorId>')
+    $xmlLines.Add('    <VendorDescription>Parametric Family Forge - AI-Driven Revit Family Generator</VendorDescription>')
+    $xmlLines.Add('  </AddIn>')
+    $xmlLines.Add('</RevitAddIns>')
 
-    Set-Content -Path $manifestPath -Value $manifestXml -Encoding UTF8
+    [System.IO.File]::WriteAllLines($manifestPath, $xmlLines, [System.Text.Encoding]::UTF8)
     Unblock-File -Path $manifestPath -ErrorAction SilentlyContinue
 
     Write-Host "  -> Installed successfully for Revit $year" -ForegroundColor Green
@@ -161,19 +168,28 @@ if (-not (Test-Path $configDir)) {
     New-Item -ItemType Directory -Path $configDir -Force | Out-Null
 }
 
+$globalTplDir = Join-Path $configDir "Templates"
+if (-not (Test-Path $globalTplDir)) {
+    New-Item -ItemType Directory -Path $globalTplDir -Force | Out-Null
+}
+$tplSourceDir = Join-Path $ProjectDir "Templates"
+if (Test-Path $tplSourceDir) {
+    Copy-Item -Path "$tplSourceDir\*" -Destination $globalTplDir -Force
+    Write-Host "  -> Installed bundled templates to: $globalTplDir" -ForegroundColor Green
+}
+
 $configFile = Join-Path $configDir "config.json"
 if (-not (Test-Path $configFile)) {
-    $defaultConfig = @"
-{
-  "api_key": "",
-  "model_engine": "gemini-3.8",
-  "temperature": 0.2,
-  "template_directory": "C:\\ProgramData\\Autodesk\\RVT 2025\\Family Templates\\English",
-  "output_directory": "$([System.IO.Path]::Combine($env:USERPROFILE, 'Desktop', 'RevitGeneratedFamilies').Replace('\', '\\'))",
-  "auto_load_into_project": true
-}
-"@
-    Set-Content -Path $configFile -Value $defaultConfig -Encoding UTF8
+    $cfgObject = [ordered]@{
+        api_key = ""
+        model_engine = "gemini-3.8"
+        temperature = 0.2
+        template_directory = $globalTplDir
+        output_directory = (Join-Path $env:USERPROFILE 'Desktop\RevitGeneratedFamilies')
+        auto_load_into_project = $true
+    }
+    $defaultConfig = $cfgObject | ConvertTo-Json
+    [System.IO.File]::WriteAllText($configFile, $defaultConfig, [System.Text.Encoding]::UTF8)
     Write-Host "  -> Created default config at: $configFile" -ForegroundColor Green
 } else {
     Write-Host "  -> Preserved existing config at: $configFile" -ForegroundColor Green

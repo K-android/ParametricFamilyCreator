@@ -32,6 +32,13 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.3.0" />
   </ItemGroup>
 
+  <!-- Include Bundled Revit Family Templates -->
+  <ItemGroup>
+    <None Include="Templates\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- System dependencies -->
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />

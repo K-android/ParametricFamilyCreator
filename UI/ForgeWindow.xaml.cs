@@ -40,7 +40,7 @@ namespace ParametricFamilyForge.UI
                 BtnGenerateRevitFamily.IsEnabled = true;
                 if (success)
                 {
-                    MessageBox.Show(this, $"Family successfully created and loaded into active project!\n\nPath:\n{resultMsg}", 
+                    MessageBox.Show(this, $"Family successfully created and saved!\n\nPath:\n{resultMsg}\n\n(If a Revit project was open, it was also loaded directly into the model)", 
                         "Family Forge - Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
@@ -56,6 +56,12 @@ namespace ParametricFamilyForge.UI
 
         private void ApplySettingsToUi()
         {
+            if (string.IsNullOrWhiteSpace(_settings.TemplateDirectory) || !Directory.Exists(_settings.TemplateDirectory))
+            {
+                _settings.TemplateDirectory = TemplateResolver.GetBestDefaultTemplateDirectory();
+                SettingsService.SaveSettings(_settings);
+            }
+
             TxtApiKey.Password = _settings.ApiKey;
             TxtTemplateDir.Text = _settings.TemplateDirectory;
             TxtOutputDir.Text = _settings.OutputDirectory;

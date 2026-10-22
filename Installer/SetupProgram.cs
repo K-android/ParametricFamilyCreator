@@ -234,6 +234,19 @@ namespace ParametricFamilyForge.Setup
                             }
                         }
 
+                        // Copy bundled templates to package directory
+                        string sourceTemplatesDir = Path.Combine(currentDir, "Templates");
+                        if (Directory.Exists(sourceTemplatesDir))
+                        {
+                            string pkgTplDir = Path.Combine(packageDir, "Templates");
+                            if (!Directory.Exists(pkgTplDir)) Directory.CreateDirectory(pkgTplDir);
+                            foreach (string tpl in Directory.GetFiles(sourceTemplatesDir, "*.*"))
+                            {
+                                File.Copy(tpl, Path.Combine(pkgTplDir, Path.GetFileName(tpl)), true);
+                            }
+                            Log("Copied bundled templates to " + pkgTplDir);
+                        }
+
                         // Generate Add-in Manifest
                         string manifestPath = Path.Combine(yearAddinDir, "ParametricFamilyForge.addin");
                         string manifestXml = @"<?xml version=""1.0"" encoding=""utf-8"" standalone=""no""?>
@@ -254,19 +267,33 @@ namespace ParametricFamilyForge.Setup
                     }
                 }
 
-                // Initialize Configuration File
+                // Initialize Configuration File and Global Templates
                 string configDir = Path.Combine(baseAddinsDir, "ParametricFamilyForge");
                 if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
+                string globalTplDir = Path.Combine(configDir, "Templates");
+                if (!Directory.Exists(globalTplDir)) Directory.CreateDirectory(globalTplDir);
+
+                string rootTemplates = Path.Combine(currentDir, "Templates");
+                if (Directory.Exists(rootTemplates))
+                {
+                    foreach (string tpl in Directory.GetFiles(rootTemplates, "*.*"))
+                    {
+                        File.Copy(tpl, Path.Combine(globalTplDir, Path.GetFileName(tpl)), true);
+                    }
+                    Log("Installed bundled family templates to: " + globalTplDir);
+                }
+
                 string configFile = Path.Combine(configDir, "config.json");
 
                 if (!File.Exists(configFile))
                 {
                     string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop).Replace("\\", "\\\\");
+                    string tplDirEscaped = globalTplDir.Replace("\\", "\\\\");
                     string defaultConfig = @"{
   ""api_key"": """",
   ""model_engine"": ""gemini-3.8"",
   ""temperature"": 0.2,
-  ""template_directory"": ""C:\\ProgramData\\Autodesk\\RVT 2025\\Family Templates\\English"",
+  ""template_directory"": """ + tplDirEscaped + @""",
   ""output_directory"": """ + desktop + @"\\\\RevitGeneratedFamilies"",
   ""auto_load_into_project"": true
 }";

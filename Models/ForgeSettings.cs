@@ -21,7 +21,7 @@ namespace ParametricFamilyForge.Models
         public double Temperature { get; set; } = 0.2;
 
         [JsonPropertyName("template_directory")]
-        public string TemplateDirectory { get; set; } = @"C:\ProgramData\Autodesk\RVT 2025\Family Templates\English";
+        public string TemplateDirectory { get; set; } = string.Empty;
 
         [JsonPropertyName("output_directory")]
         public string OutputDirectory { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "RevitGeneratedFamilies");

@@ -200,7 +200,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBox x:Name="TxtTemplateDir" Text="C:\ProgramData\Autodesk\RVT 2025\Family Templates\English" />
+                                <TextBox x:Name="TxtTemplateDir" />
                                 <Button Grid.Column="1" Content="..." Margin="6,0,0,0" Click="BtnBrowseTemplateDir_Click" Background="#3E4451" />
                             </Grid>
 

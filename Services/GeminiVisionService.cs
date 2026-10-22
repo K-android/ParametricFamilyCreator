@@ -113,8 +113,8 @@ HYBRID PARAMETER EXTRACTION RULES:
             // If an image or PDF is provided, encode to base64
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
-                byte[] imageBytes = await ReadAllBytesCompatAsync(imageFilePath, cancellationToken);
-                string mimeType = GetMimeType(imageFilePath);
+                byte[] imageBytes = await ReadAllBytesCompatAsync(imageFilePath!, cancellationToken);
+                string mimeType = GetMimeType(imageFilePath!);
                 parts.Add(new
                 {
                     inline_data = new
@@ -194,11 +194,8 @@ HYBRID PARAMETER EXTRACTION RULES:
                     string errorMsg = await response.Content.ReadAsStringAsync();
                     lastError = $"[{targetModel} - {response.StatusCode}]: {errorMsg}";
 
-                    // If 404 (model not found), try next model in candidate list
-                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    {
-                        continue;
-                    }
+                    // Try next model in candidate list if this one failed
+                    continue;
                 }
                 catch (Exception ex)
                 {

@@ -20,6 +20,22 @@ namespace ParametricFamilyForge.RevitEngine
             return UnitUtils.ConvertToInternalUnits(mm, UnitTypeId.Millimeters);
         }
 
+        public static BuiltInCategory ResolveCategory(string? categoryName)
+        {
+            if (string.IsNullOrWhiteSpace(categoryName)) return BuiltInCategory.OST_GenericModel;
+            string cat = categoryName!.Trim().ToLowerInvariant();
+            if (cat.Contains("door")) return BuiltInCategory.OST_Doors;
+            if (cat.Contains("window")) return BuiltInCategory.OST_Windows;
+            if (cat.Contains("furn")) return BuiltInCategory.OST_Furniture;
+            if (cat.Contains("case")) return BuiltInCategory.OST_Casework;
+            if (cat.Contains("special")) return BuiltInCategory.OST_SpecialityEquipment;
+            if (cat.Contains("mass")) return BuiltInCategory.OST_Mass;
+            if (cat.Contains("light")) return BuiltInCategory.OST_LightingFixtures;
+            if (cat.Contains("plumb")) return BuiltInCategory.OST_PlumbingFixtures;
+            if (cat.Contains("column")) return BuiltInCategory.OST_Columns;
+            return BuiltInCategory.OST_GenericModel;
+        }
+
         public static string BuildAndLoadIntoProject(
             UIApplication uiApp,
             FamilySchema schema,
@@ -36,10 +52,19 @@ namespace ParametricFamilyForge.RevitEngine
             // Intelligently resolve template across versions, languages, and Metric/Imperial names
             string templatePath = TemplateResolver.Resolve(uiApp, schema.TemplateName, templateDirectoryPath);
 
-            Document masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
+            Document masterDoc;
+            if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+            {
+                masterDoc = uiApp.Application.OpenDocumentFile(templatePath);
+            }
+            else
+            {
+                masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
+            }
+
             if (masterDoc == null)
             {
-                throw new InvalidOperationException($"Failed to create Master Family document from '{templatePath}'.");
+                throw new InvalidOperationException($"Failed to create or open Master Family document from '{templatePath}'.");
             }
 
             if (!Directory.Exists(outputDirectoryPath))
@@ -52,6 +77,18 @@ namespace ParametricFamilyForge.RevitEngine
             using (Transaction trans = new Transaction(masterDoc, $"Build Master Family {schema.MasterFamilyName}"))
             {
                 trans.Start();
+
+                // Dynamically re-categorize family to intended BIM category
+                try
+                {
+                    BuiltInCategory targetBic = ResolveCategory(schema.FamilyCategory);
+                    Category? targetCat = masterDoc.Settings?.Categories?.get_Item(targetBic);
+                    if (targetCat != null && masterDoc.OwnerFamily != null && masterDoc.OwnerFamily.FamilyCategory?.Id != targetCat.Id)
+                    {
+                        masterDoc.OwnerFamily.FamilyCategory = targetCat;
+                    }
+                }
+                catch { }
 
                 FamilyManager famMgr = masterDoc.FamilyManager;
 
@@ -334,9 +371,9 @@ namespace ParametricFamilyForge.RevitEngine
             }
 
             // Link height parameter if specified
-            if (!string.IsNullOrEmpty(extDef.HeightParameter) && paramDict.TryGetValue(extDef.HeightParameter, out FamilyParameter? heightFamParam))
+            if (!string.IsNullOrEmpty(extDef.HeightParameter) && paramDict.TryGetValue(extDef.HeightParameter!, out FamilyParameter? heightFamParam))
             {
-                if (endParam != null && !endParam.IsReadOnly)
+                if (endParam != null && !endParam.IsReadOnly && heightFamParam != null)
                 {
                     famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam);
                 }
@@ -350,7 +387,8 @@ namespace ParametricFamilyForge.RevitEngine
             string nestedRfaPath)
         {
             // Load nested RFA into Master Family
-            bool loaded = masterDoc.LoadFamily(nestedRfaPath, out Family loadedNestedFamily);
+            Family? loadedNestedFamily = null;
+            bool loaded = masterDoc.LoadFamily(nestedRfaPath, out loadedNestedFamily);
             if (!loaded && loadedNestedFamily == null)
             {
                 // In case it was already loaded earlier

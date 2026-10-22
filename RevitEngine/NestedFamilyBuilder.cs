@@ -25,7 +25,16 @@ namespace ParametricFamilyForge.RevitEngine
 
             string templatePath = TemplateResolver.Resolve(uiApp, nestedDef.TemplateName, templateDirectoryPath);
 
-            Document familyDoc = uiApp.Application.NewFamilyDocument(templatePath);
+            Document familyDoc;
+            if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+            {
+                familyDoc = uiApp.Application.OpenDocumentFile(templatePath);
+            }
+            else
+            {
+                familyDoc = uiApp.Application.NewFamilyDocument(templatePath);
+            }
+
             if (familyDoc == null)
             {
                 throw new InvalidOperationException($"Failed to create new family document using template: {templatePath}");

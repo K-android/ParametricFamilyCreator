@@ -33,6 +33,10 @@ namespace ParametricFamilyForge.Services
                     var settings = JsonSerializer.Deserialize<ForgeSettings>(json, JsonOptions);
                     if (settings != null)
                     {
+                        if (string.IsNullOrWhiteSpace(settings.TemplateDirectory) || !Directory.Exists(settings.TemplateDirectory))
+                        {
+                            settings.TemplateDirectory = RevitEngine.TemplateResolver.GetBestDefaultTemplateDirectory();
+                        }
                         return settings;
                     }
                 }
@@ -43,6 +47,7 @@ namespace ParametricFamilyForge.Services
             }
 
             var defaultSettings = new ForgeSettings();
+            defaultSettings.TemplateDirectory = RevitEngine.TemplateResolver.GetBestDefaultTemplateDirectory();
             SaveSettings(defaultSettings);
             return defaultSettings;
         }

@@ -201,13 +201,38 @@ namespace ParametricFamilyForge.UI
 
                 if (ext == ".pdf")
                 {
-                    ImgPreview.Visibility = Visibility.Collapsed;
+                    var embeddedImgs = GeminiVisionService.ExtractImagesFromPdf(path);
+                    if (embeddedImgs.Count > 0)
+                    {
+                        try
+                        {
+                            using var ms = new MemoryStream(embeddedImgs[0].Data);
+                            var bmp = new BitmapImage();
+                            bmp.BeginInit();
+                            bmp.CacheOption = BitmapCacheOption.OnLoad;
+                            bmp.StreamSource = ms;
+                            bmp.EndInit();
+                            ImgPreview.Source = bmp;
+                            ImgPreview.Visibility = Visibility.Visible;
+                        }
+                        catch
+                        {
+                            ImgPreview.Visibility = Visibility.Collapsed;
+                        }
+                    }
+                    else
+                    {
+                        ImgPreview.Visibility = Visibility.Collapsed;
+                    }
+
                     PdfBadge.Visibility = Visibility.Visible;
                     BtnClearImage.Visibility = Visibility.Visible;
                     EmptyDropContent.Visibility = Visibility.Collapsed;
                     _selectedImagePath = path;
-                    TxtImageStatus.Text = $"PDF: {Path.GetFileName(path)} (Ready for Multimodal Analysis)";
-                    LogMessage($"Cut-Sheet PDF attached: {path}");
+                    TxtImageStatus.Text = embeddedImgs.Count > 0
+                        ? $"PDF: {Path.GetFileName(path)} ({embeddedImgs.Count} embedded image(s) + text ready)"
+                        : $"PDF: {Path.GetFileName(path)} (Multimodal Vision + Text ready)";
+                    LogMessage($"Cut-Sheet PDF attached: {path} (extracted {embeddedImgs.Count} embedded raster image(s) for visual inspection)");
                 }
                 else
                 {

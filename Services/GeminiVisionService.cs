@@ -51,10 +51,14 @@ namespace ParametricFamilyForge.Services
 Your objective is to analyze architectural cut-sheets (PDF or image), submittal CAD prints, or user prompts (or both),
 and synthesize a complete, millimeter-accurate, non-empty 3D Revit Family specification JSON.
 
-HYBRID PARAMETER & GEOMETRY EXTRACTION RULES:
-1. INPUT PRIORITY:
-   - If the user provides BOTH a prompt and a PDF/image: use the PDF/image for full component geometry and dimensions, while letting explicit numbers in the user's prompt override specific dimensions.
-   - If the user provides ONLY a PDF/image (empty or brief prompt): extract the product name, category, overall Width, Depth, Height, thickness, frame/panel/leg profiles, and hardware directly from the cut-sheet drawing and tables.
+DEEP VISUAL & MULTIMODAL CONTEXT ANALYSIS RULES:
+1. VISUAL INSPECTION OF IMAGES & PDF DRAWINGS:
+   - Carefully examine ALL visual images, product photographs, 3D isometric renders, and 2D orthographic drawings (Plan/Top View, Front Elevation, Side Elevation, Section Details) inside the attached PDF or image.
+   - Read dimension leader lines, extension arrows, scale bars, section callouts, schedule tables, and title-block metadata.
+   - Translate visual features into 3D solids: e.g., if the image shows a table with a top slab, modesty panel, and 4 cylindrical legs, or a door with a perimeter frame, vision lite glazing, kickplate, and lever hardware, model each visible part as an explicit 3D solid in 'host_extrusions' and 'nested_families'.
+2. INPUT PRIORITY:
+   - If the user provides BOTH a prompt and a PDF/image: combine the visual geometry and context from the PDF/image with the user's prompt, letting explicit numbers in the user's prompt override specific dimensions.
+   - If the user provides ONLY a PDF/image (empty or brief prompt): infer the complete product name, category, overall Width, Depth, Height, thickness, and all visible 3D sub-parts directly from the images and text inside the sheet.
    - If the user provides ONLY a text prompt: synthesize the complete architectural component and infer standard ergonomic/architectural dimensions for any unspecified values.
 2. UNIT CONVERSION:
    - Convert all dimensions to millimeters (1 inch = 25.4 mm, 1 foot = 304.8 mm, 1 cm = 10 mm, 1 m = 1000 mm).
@@ -145,11 +149,11 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             var parts = new List<object>();
             string extractedDocContext = "";
 
-            // 1. Attach PDF / Image for multimodal vision AND pre-extract text from PDF cut-sheets
+            // 1. Attach PDF / Image for multimodal vision, extract embedded images inside PDFs, AND pre-extract text/metadata/dimension context
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
                 string ext = Path.GetExtension(imageFilePath).ToLowerInvariant();
-                ReportStatus($"📄 Reading attached {(ext == ".pdf" ? "PDF cut-sheet" : "reference image")}: {Path.GetFileName(imageFilePath)}...");
+                ReportStatus($"📄 Analyzing visual & textual context in {(ext == ".pdf" ? "PDF cut-sheet" : "reference image")}: {Path.GetFileName(imageFilePath)}...");
 
                 byte[] imageBytes = OptimizeImageForVision(imageFilePath!, out string mimeType);
                 parts.Add(new
@@ -163,16 +167,40 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
                 if (ext == ".pdf")
                 {
+                    // Also extract embedded raster images (product photos, scanned drawings, renders) from inside the PDF
+                    var embeddedImages = ExtractImagesFromPdf(imageFilePath!);
+                    if (embeddedImages.Count > 0)
+                    {
+                        ReportStatus($"🖼️ Extracted {embeddedImages.Count} embedded image(s) from inside the PDF for deep visual inspection...");
+                        foreach (var img in embeddedImages)
+                        {
+                            parts.Add(new
+                            {
+                                inline_data = new
+                                {
+                                    mime_type = img.MimeType,
+                                    data = Convert.ToBase64String(img.Data)
+                                }
+                            });
+                        }
+                    }
+
                     string pdfText = ExtractTextFromPdf(imageFilePath!);
+                    string pdfMeta = ExtractPdfMetadataAndContext(imageFilePath!, pdfText, embeddedImages.Count);
+                    var sbCtx = new StringBuilder();
+                    sbCtx.AppendLine("\n\n[PDF DOCUMENT & VISUAL CONTEXT]:");
+                    sbCtx.AppendLine(pdfMeta);
                     if (!string.IsNullOrWhiteSpace(pdfText))
                     {
-                        string snippet = pdfText.Length > 4000 ? pdfText.Substring(0, 4000) : pdfText;
-                        extractedDocContext = $"\n\n[EXTRACTED PDF CUT-SHEET TEXT & DIMENSIONS]:\n{snippet}";
+                        string snippet = pdfText.Length > 5000 ? pdfText.Substring(0, 5000) : pdfText;
+                        sbCtx.AppendLine("[EXTRACTED PDF CUT-SHEET TEXT, CALLOUTS & TABLES]:");
+                        sbCtx.AppendLine(snippet);
                     }
+                    extractedDocContext = sbCtx.ToString();
                 }
                 else
                 {
-                    extractedDocContext = $"\n\n[ATTACHED IMAGE FILENAME]: {Path.GetFileNameWithoutExtension(imageFilePath)}";
+                    extractedDocContext = $"\n\n[ATTACHED IMAGE CONTEXT]:\nFilename: {Path.GetFileNameWithoutExtension(imageFilePath)}\nInstruction: Inspect all visual views, proportions, sub-parts, and dimension callouts visible in the attached image.";
                 }
             }
 
@@ -1057,6 +1085,236 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
         /// Pass 1 collects /ToUnicode CMap tables (beginbfchar / beginbfrange) for subsetted CID fonts;
         /// Pass 2 inflates FlateDecode content streams and decodes text operators (Tj, TJ, ', ").
         /// </summary>
+        /// <summary>
+        /// Extracts embedded raster images (JPEG /DCTDecode and raw RGB/Grayscale /FlateDecode) directly from inside a PDF file.
+        /// Enables Gemini Vision (and the UI preview) to clearly see product photos, scanned CAD drawings, and 3D renders inside PDFs.
+        /// </summary>
+        public static List<(byte[] Data, string MimeType, int Width, int Height)> ExtractImagesFromPdf(string pdfPath)
+        {
+            var results = new List<(byte[] Data, string MimeType, int Width, int Height)>();
+            try
+            {
+                if (string.IsNullOrEmpty(pdfPath) || !File.Exists(pdfPath)) return results;
+                byte[] bytes = File.ReadAllBytes(pdfPath);
+                var latin1 = Encoding.GetEncoding(28591);
+                string raw = latin1.GetString(bytes);
+
+                int pos = 0;
+                while (true)
+                {
+                    int s = raw.IndexOf("stream", pos, StringComparison.Ordinal);
+                    if (s < 0) break;
+                    if (s >= 3 && raw.Substring(s - 3, 3) == "end") { pos = s + 6; continue; }
+
+                    int dataStart = s + 6;
+                    if (dataStart < raw.Length && raw[dataStart] == '\r') dataStart++;
+                    if (dataStart < raw.Length && raw[dataStart] == '\n') dataStart++;
+                    int e = raw.IndexOf("endstream", dataStart, StringComparison.Ordinal);
+                    if (e < 0) break;
+
+                    int dictStart = raw.LastIndexOf("<<", s, Math.Min(s, 2500), StringComparison.Ordinal);
+                    string dict = dictStart >= 0 ? raw.Substring(dictStart, s - dictStart) : "";
+                    pos = e + 9;
+
+                    if (!dict.Contains("/Image")) continue;
+
+                    int len = e - dataStart;
+                    if (len <= 128) continue;
+
+                    int w = 0, h = 0;
+                    var mw = Regex.Match(dict, @"/Width\s+(\d+)");
+                    var mh = Regex.Match(dict, @"/Height\s+(\d+)");
+                    if (mw.Success) int.TryParse(mw.Groups[1].Value, out w);
+                    if (mh.Success) int.TryParse(mh.Groups[1].Value, out h);
+                    if (w > 0 && h > 0 && (w < 48 || h < 48)) continue; // skip tiny icons/masks
+
+                    // 1. Embedded JPEG (/DCTDecode)
+                    if (dict.Contains("/DCTDecode"))
+                    {
+                        byte[]? srcBuf = bytes;
+                        int srcOff = dataStart;
+                        int srcLen = len;
+                        if (dict.Contains("/FlateDecode"))
+                        {
+                            var inf = Inflate(bytes, dataStart, len);
+                            if (inf != null) { srcBuf = inf; srcOff = 0; srcLen = inf.Length; }
+                        }
+
+                        // Find JPEG SOI (FF D8)
+                        int jpgStart = -1;
+                        for (int i = srcOff; i < srcOff + srcLen - 2; i++)
+                        {
+                            if (srcBuf[i] == 0xFF && srcBuf[i + 1] == 0xD8) { jpgStart = i; break; }
+                        }
+                        if (jpgStart >= 0)
+                        {
+                            int jpgLen = (srcOff + srcLen) - jpgStart;
+                            var jpgBytes = new byte[jpgLen];
+                            Buffer.BlockCopy(srcBuf, jpgStart, jpgBytes, 0, jpgLen);
+                            results.Add((jpgBytes, "image/jpeg", w > 0 ? w : 800, h > 0 ? h : 600));
+                        }
+                    }
+                    // 2. Embedded FlateDecode RGB or Grayscale raster image
+                    else if (dict.Contains("/FlateDecode") && w >= 64 && h >= 64 && w <= 4096 && h <= 4096)
+                    {
+                        byte[]? inflated = Inflate(bytes, dataStart, len);
+                        if (inflated == null) continue;
+
+                        bool isGray = dict.Contains("/DeviceGray");
+                        int channels = isGray ? 1 : 3;
+                        int rowBytes = w * channels;
+
+                        byte[]? rawPixels = null;
+                        if (inflated.Length == rowBytes * h)
+                        {
+                            rawPixels = inflated;
+                        }
+                        else if (inflated.Length == (rowBytes + 1) * h)
+                        {
+                            // PNG row filter predictor (1 filter byte per scanline)
+                            rawPixels = DecodePngFilteredRows(inflated, w, h, channels);
+                        }
+
+                        if (rawPixels != null)
+                        {
+                            try
+                            {
+                                var pf = isGray ? System.Windows.Media.PixelFormats.Gray8 : System.Windows.Media.PixelFormats.Rgb24;
+                                var bmp = BitmapSource.Create(w, h, 96, 96, pf, null, rawPixels, rowBytes);
+                                var encoder = new PngBitmapEncoder();
+                                encoder.Frames.Add(BitmapFrame.Create(bmp));
+                                using var ms = new MemoryStream();
+                                encoder.Save(ms);
+                                results.Add((ms.ToArray(), "image/png", w, h));
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return results
+                .OrderByDescending(r => r.Width * r.Height)
+                .Take(3)
+                .ToList();
+        }
+
+        private static byte[] DecodePngFilteredRows(byte[] src, int width, int height, int bpp)
+        {
+            int rowBytes = width * bpp;
+            int srcStride = rowBytes + 1;
+            var dst = new byte[rowBytes * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                int srcRow = y * srcStride;
+                int dstRow = y * rowBytes;
+                int prevRow = (y - 1) * rowBytes;
+                byte filter = src[srcRow];
+
+                for (int x = 0; x < rowBytes; x++)
+                {
+                    byte raw = src[srcRow + 1 + x];
+                    byte a = x >= bpp ? dst[dstRow + x - bpp] : (byte)0;
+                    byte b = y > 0 ? dst[prevRow + x] : (byte)0;
+                    byte c = (x >= bpp && y > 0) ? dst[prevRow + x - bpp] : (byte)0;
+
+                    dst[dstRow + x] = filter switch
+                    {
+                        1 => (byte)(raw + a),
+                        2 => (byte)(raw + b),
+                        3 => (byte)(raw + ((a + b) >> 1)),
+                        4 => (byte)(raw + PaethPredictor(a, b, c)),
+                        _ => raw
+                    };
+                }
+            }
+            return dst;
+        }
+
+        private static byte PaethPredictor(byte a, byte b, byte c)
+        {
+            int p = a + b - c;
+            int pa = Math.Abs(p - a);
+            int pb = Math.Abs(p - b);
+            int pc = Math.Abs(p - c);
+            if (pa <= pb && pa <= pc) return a;
+            return pb <= pc ? b : c;
+        }
+
+        /// <summary>
+        /// Extracts document-level context from a PDF: metadata (/Title, /Subject, /Keywords),
+        /// physical sheet size (/MediaBox), CAD annotations (/Contents), and pre-parsed dimension candidates.
+        /// </summary>
+        private string ExtractPdfMetadataAndContext(string pdfPath, string extractedText, int embeddedImageCount)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"Filename: {Path.GetFileName(pdfPath)}");
+            sb.AppendLine($"Embedded Raster Images Extracted: {embeddedImageCount}");
+
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(pdfPath);
+                var latin1 = Encoding.GetEncoding(28591);
+                string raw = latin1.GetString(bytes);
+
+                // Extract PDF Info fields (/Title, /Subject, /Keywords)
+                foreach (var key in new[] { "Title", "Subject", "Keywords" })
+                {
+                    var m = Regex.Match(raw, @"/" + key + @"\s*\(([^)]{2,180})\)");
+                    if (m.Success)
+                    {
+                        string val = UnescapePdfString(m.Groups[1].Value).Trim();
+                        if (!string.IsNullOrWhiteSpace(val)) sb.AppendLine($"{key}: {val}");
+                    }
+                }
+
+                // Extract Page MediaBox physical size (1 pt = 0.352778 mm)
+                var mb = Regex.Match(raw, @"/MediaBox\s*\[\s*0\s+0\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*\]");
+                if (mb.Success &&
+                    double.TryParse(mb.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double ptW) &&
+                    double.TryParse(mb.Groups[2].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double ptH))
+                {
+                    sb.AppendLine($"Sheet Size: {Math.Round(ptW * 0.352778)}mm x {Math.Round(ptH * 0.352778)}mm");
+                }
+
+                // Extract PDF Annotation / Callout contents (/Contents (...))
+                var notes = new List<string>();
+                foreach (Match cm in Regex.Matches(raw, @"/Contents\s*\(([^)]{2,200})\)"))
+                {
+                    string note = UnescapePdfString(cm.Groups[1].Value).Trim();
+                    if (note.Length >= 2 && !notes.Contains(note)) notes.Add(note);
+                    if (notes.Count >= 15) break;
+                }
+                if (notes.Count > 0)
+                {
+                    sb.AppendLine("CAD Callout Annotations: " + string.Join(" | ", notes));
+                }
+
+                // Pre-detect category & candidate dimensions from the extracted text to guide the AI
+                string combined = $"{Path.GetFileNameWithoutExtension(pdfPath)} {extractedText} {string.Join(" ", notes)}";
+                string? cat = DetectCategory(combined);
+                if (!string.IsNullOrEmpty(cat))
+                {
+                    sb.AppendLine($"Detected Architectural Category Hint: {cat}");
+                }
+                var dims = ParseDimensions(combined, cat ?? "generic");
+                var dimHints = new List<string>();
+                if (dims.W.HasValue) dimHints.Add($"Width≈{Math.Round(dims.W.Value)}mm");
+                if (dims.D.HasValue) dimHints.Add($"Depth≈{Math.Round(dims.D.Value)}mm");
+                if (dims.H.HasValue) dimHints.Add($"Height≈{Math.Round(dims.H.Value)}mm");
+                if (dims.T.HasValue) dimHints.Add($"Thickness≈{Math.Round(dims.T.Value)}mm");
+                if (dimHints.Count > 0)
+                {
+                    sb.AppendLine("Pre-scanned Dimension Candidates from Text: " + string.Join(", ", dimHints));
+                }
+            }
+            catch { }
+
+            return sb.ToString().TrimEnd();
+        }
+
         private static string ExtractTextFromPdf(string pdfPath)
         {
             try
@@ -1119,6 +1377,12 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 foreach (var content in textStreams)
                 {
                     ExtractTextOperators(content, sb, cmap);
+                }
+
+                // Also capture any PDF /Contents (...) callout annotations and /Title metadata
+                foreach (Match cm in Regex.Matches(raw, @"/(?:Contents|Title|Subject)\s*\(([^)]{2,200})\)"))
+                {
+                    sb.Append(' ').Append(UnescapePdfString(cm.Groups[1].Value));
                 }
 
                 // Always include the PDF filename as additional context (e.g. "Double_Door_1800x2100.pdf")
@@ -1969,7 +2233,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         var frame = decoder.Frames[0];
                         int origW = frame.PixelWidth;
                         int origH = frame.PixelHeight;
-                        int maxDim = 1280;
+                        int maxDim = 2048;
 
                         BitmapSource source = frame;
                         if (origW > maxDim || origH > maxDim)
@@ -1978,7 +2242,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                             source = new TransformedBitmap(frame, new System.Windows.Media.ScaleTransform(scale, scale));
                         }
 
-                        var encoder = new JpegBitmapEncoder { QualityLevel = 82 };
+                        var encoder = new JpegBitmapEncoder { QualityLevel = 92 };
                         encoder.Frames.Add(BitmapFrame.Create(source));
 
                         using (var ms = new MemoryStream())

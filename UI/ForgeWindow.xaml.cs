@@ -28,6 +28,18 @@ namespace ParametricFamilyForge.UI
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _geminiService = new GeminiVisionService();
 
+            // Set window icon
+            try
+            {
+                string assemblyDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+                string iconPath = Path.Combine(assemblyDir, "Resources", "icon64.png");
+                if (File.Exists(iconPath))
+                {
+                    this.Icon = new BitmapImage(new Uri(iconPath, UriKind.Absolute));
+                }
+            }
+            catch { }
+
             // Load persistent settings
             _settings = SettingsService.LoadSettings();
             ApplySettingsToUi();

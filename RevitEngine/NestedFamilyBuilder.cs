@@ -185,6 +185,12 @@ namespace ParametricFamilyForge.RevitEngine
             double startZ = MmToFeet(extDef.StartZ_mm);
             double endZ = MmToFeet(extDef.EndZ_mm);
 
+            // Scale and boundary sanity guards: prevent degenerate zero-area profiles or negative heights
+            if (maxX <= minX) maxX = minX + MmToFeet(10.0);
+            if (maxY <= minY) maxY = minY + MmToFeet(10.0);
+            if (endZ <= startZ) endZ = startZ + MmToFeet(5.0);
+            double extrusionHeight = Math.Max(endZ - startZ, MmToFeet(2.0));
+
             CurveArrArray profile = new CurveArrArray();
 
             if (string.Equals(extDef.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
@@ -245,7 +251,7 @@ namespace ParametricFamilyForge.RevitEngine
                 true,
                 profile,
                 sketchPlane,
-                endZ - startZ
+                extrusionHeight
             );
 
             // Set extrusion height offsets

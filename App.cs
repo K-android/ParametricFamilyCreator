@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
@@ -40,8 +41,35 @@ namespace ParametricFamilyForge
                 )
                 {
                     ToolTip = "Generate AI-driven parametric Revit families with nested sub-components and parameter bindings.",
-                    LongDescription = "Input a sketch or prompt to synthesize complete Revit .rfa families using Gemini Vision or deterministic AEC rules."
+                    LongDescription = "Input a sketch, cut-sheet PDF, or prompt to synthesize complete Revit .rfa families using Gemini Vision or deterministic AEC rules."
                 };
+
+                // Configure Ribbon Icons (32x32 for large button, 16x16 for small button)
+                try
+                {
+                    string assemblyDir = Path.GetDirectoryName(assemblyPath) ?? "";
+                    string icon32 = Path.Combine(assemblyDir, "Resources", "icon32.png");
+                    string icon16 = Path.Combine(assemblyDir, "Resources", "icon16.png");
+
+                    if (File.Exists(icon32))
+                    {
+                        buttonData.LargeImage = new BitmapImage(new Uri(icon32, UriKind.Absolute));
+                    }
+                    else
+                    {
+                        buttonData.LargeImage = new BitmapImage(new Uri("pack://application:,,,/ParametricFamilyForge;component/Resources/icon32.png", UriKind.Absolute));
+                    }
+
+                    if (File.Exists(icon16))
+                    {
+                        buttonData.Image = new BitmapImage(new Uri(icon16, UriKind.Absolute));
+                    }
+                    else
+                    {
+                        buttonData.Image = new BitmapImage(new Uri("pack://application:,,,/ParametricFamilyForge;component/Resources/icon16.png", UriKind.Absolute));
+                    }
+                }
+                catch { }
 
                 panel.AddItem(buttonData);
 

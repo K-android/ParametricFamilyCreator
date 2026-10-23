@@ -247,6 +247,19 @@ namespace ParametricFamilyForge.Setup
                             Log("Copied bundled templates to " + pkgTplDir);
                         }
 
+                        // Copy Resources (Ribbon Icons) to package directory
+                        string sourceResourcesDir = Path.Combine(currentDir, "Resources");
+                        if (Directory.Exists(sourceResourcesDir))
+                        {
+                            string pkgResDir = Path.Combine(packageDir, "Resources");
+                            if (!Directory.Exists(pkgResDir)) Directory.CreateDirectory(pkgResDir);
+                            foreach (string res in Directory.GetFiles(sourceResourcesDir, "*.*"))
+                            {
+                                File.Copy(res, Path.Combine(pkgResDir, Path.GetFileName(res)), true);
+                            }
+                            Log("Copied ribbon icon resources to " + pkgResDir);
+                        }
+
                         // Generate Add-in Manifest
                         string manifestPath = Path.Combine(yearAddinDir, "ParametricFamilyForge.addin");
                         string manifestXml = @"<?xml version=""1.0"" encoding=""utf-8"" standalone=""no""?>

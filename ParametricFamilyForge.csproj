@@ -39,6 +39,14 @@
     </None>
   </ItemGroup>
 
+  <!-- Include Icons and Resources -->
+  <ItemGroup>
+    <Resource Include="Resources\*.png" />
+    <None Include="Resources\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- System dependencies -->
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />

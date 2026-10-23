@@ -115,10 +115,10 @@
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="AI Model Engine:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,3" />
                             <ComboBox x:Name="CmbModelEngine" IsEditable="True" SelectedIndex="0">
-                                <ComboBoxItem Content="gemini-3.8-flash (Latest Flagship)" Tag="gemini-3.8-flash" />
-                                <ComboBoxItem Content="gemini-2.5-flash (Recommended)" Tag="gemini-2.5-flash" />
-                                <ComboBoxItem Content="gemini-2.5-pro (Complex Specs)" Tag="gemini-2.5-pro" />
-                                <ComboBoxItem Content="gemini-2.0-flash (High Speed)" Tag="gemini-2.0-flash" />
+                                <ComboBoxItem Content="gemini-2.5-flash (Recommended - High Availability)" Tag="gemini-2.5-flash" />
+                                <ComboBoxItem Content="gemini-3.8-flash (Latest Flagship - Subject to Demand)" Tag="gemini-3.8-flash" />
+                                <ComboBoxItem Content="gemini-2.0-flash (Ultra Fast)" Tag="gemini-2.0-flash" />
+                                <ComboBoxItem Content="gemini-2.5-pro (Deep Multimodal Reasoning)" Tag="gemini-2.5-pro" />
                                 <ComboBoxItem Content="gemini-2.0-flash-lite (Economy)" Tag="gemini-2.0-flash-lite" />
                                 <ComboBoxItem Content="gemini-1.5-flash" Tag="gemini-1.5-flash" />
                                 <ComboBoxItem Content="gemini-1.5-pro" Tag="gemini-1.5-pro" />

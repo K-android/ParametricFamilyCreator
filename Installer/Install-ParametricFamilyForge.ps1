@@ -135,6 +135,14 @@ foreach ($year in $DetectedYears) {
         Copy-Item -Path "$tplSourceDir\*" -Destination $pkgTplDir -Force
     }
 
+    # Copy Resources (Ribbon Icons)
+    $resSourceDir = Join-Path $ProjectDir "Resources"
+    if (Test-Path $resSourceDir) {
+        $pkgResDir = Join-Path $targetPackageDir "Resources"
+        if (-not (Test-Path $pkgResDir)) { New-Item -ItemType Directory -Path $pkgResDir -Force | Out-Null }
+        Copy-Item -Path "$resSourceDir\*" -Destination $pkgResDir -Force
+    }
+
     # Write Manifest with configured Assembly path
     $manifestPath = Join-Path $targetAddinDir "ParametricFamilyForge.addin"
     $installedAssemblyPath = Join-Path $targetPackageDir "ParametricFamilyForge.dll"

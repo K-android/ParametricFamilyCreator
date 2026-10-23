@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -27,6 +27,11 @@ namespace ParametricFamilyForge.UI
             _externalEvent = externalEvent ?? throw new ArgumentNullException(nameof(externalEvent));
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _geminiService = new GeminiVisionService();
+            _geminiService.OnStatusUpdate = (status) => Dispatcher.Invoke(() =>
+            {
+                TxtAiStatus.Text = status;
+                LogMessage(status);
+            });
 
             // Set window icon
             try
@@ -314,11 +319,29 @@ namespace ParametricFamilyForge.UI
                 return;
             }
 
+            var startTime = DateTime.UtcNow;
+            var elapsedTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            elapsedTimer.Tick += (s, args) =>
+            {
+                int sec = (int)(DateTime.UtcNow - startTime).TotalSeconds;
+                TxtAiElapsed.Text = $"{sec}s";
+                BtnSynthesizeAi.Content = $"⏳ AI Modelling... ({sec}s)";
+            };
+
             try
             {
                 BtnSynthesizeAi.IsEnabled = false;
+                BtnSynthesizeAi.Content = "⏳ AI Modelling... (0s)";
+                TxtAiElapsed.Text = "0s";
+                TxtAiStatus.Text = $"Starting Gemini 3/4 multimodal synthesis ({model})...";
+                AiStatusBanner.Visibility = Visibility.Visible;
                 ProgBar.Visibility = Visibility.Visible;
-                LogMessage($"Calling Gemini Vision API ({model}, temp={temp:0.00}) with structured schema constraints...");
+                elapsedTimer.Start();
+
+                LogMessage($"Calling Gemini Vision API ({model}, temp={temp:0.00}) with structured 3D schema constraints...");
 
                 FamilySchema schema = await _geminiService.GenerateFamilySchemaAsync(
                     apiKey,
@@ -329,7 +352,7 @@ namespace ParametricFamilyForge.UI
                 );
 
                 UpdateJsonPreview(schema);
-                LogMessage($"Successfully synthesized schema for '{schema.MasterFamilyName}' using {_geminiService.LastUsedModel ?? model}.");
+                LogMessage($"Successfully synthesized schema for '{schema.MasterFamilyName}' ({schema.HostExtrusions.Count} extrusions, {schema.NestedFamilies.Count} nested components) using {_geminiService.LastUsedModel ?? model}.");
                 if (!string.IsNullOrEmpty(_geminiService.LastUsedModel) && !_geminiService.LastUsedModel!.Equals(model, StringComparison.OrdinalIgnoreCase))
                 {
                     LogMessage($"[AI Notice] '{model}' was unavailable, so the fallback model '{_geminiService.LastUsedModel}' was used.");
@@ -350,7 +373,10 @@ namespace ParametricFamilyForge.UI
             }
             finally
             {
+                elapsedTimer.Stop();
+                BtnSynthesizeAi.Content = "Synthesize AI (Gemini)";
                 BtnSynthesizeAi.IsEnabled = true;
+                AiStatusBanner.Visibility = Visibility.Collapsed;
                 ProgBar.Visibility = Visibility.Collapsed;
             }
         }

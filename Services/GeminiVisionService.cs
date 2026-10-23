@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,33 +33,101 @@ namespace ParametricFamilyForge.Services
         }
 
         /// <summary>
-        /// Two-pass multimodal reasoning system instruction for Gemini Vision.
+        /// Optional live status callback for UI progress reporting during AI reasoning and PDF extraction.
+        /// </summary>
+        public Action<string>? OnStatusUpdate { get; set; }
+
+        private void ReportStatus(string message)
+        {
+            try { OnStatusUpdate?.Invoke(message); } catch { }
+        }
+
+        /// <summary>
+        /// Two-pass multimodal reasoning system instruction for Gemini 3 & 4 Vision.
+        /// Explicitly defines the exact JSON schema and requires non-empty 3D extrusions.
         /// </summary>
         public const string FamilyForgeSystemInstruction = 
 @"You are a Principal BIM/VDC Lead and Autodesk Revit API Parametric Content Specialist.
-Your objective is to analyze architectural cut-sheets (PDF or image), submittal CAD prints, or user prompts,
-and synthesize a millimeter-accurate, production-ready Revit Family specification JSON.
+Your objective is to analyze architectural cut-sheets (PDF or image), submittal CAD prints, or user prompts (or both),
+and synthesize a complete, millimeter-accurate, non-empty 3D Revit Family specification JSON.
 
-HYBRID PARAMETER EXTRACTION RULES:
-1. USER EXPLICIT PRIORITY (HIGHEST): If the user's prompt explicitly mentions any parameter or dimension (e.g. 'Width=1800mm', 'Depth=900mm', 'Height=750mm', 'Leg_Diameter=40mm'), YOU MUST ENFORCE THOSE EXACT VALUES. User overrides supersede any conflicting numbers visible on the image/PDF.
-2. AUTOMATIC PDF/IMAGE INFERENCE: For any parameter NOT explicitly dictated by the user:
-   - Carefully inspect dimension lines, leader arrows, dimension strings, and schedules in the PDF/image.
-   - If the drawing uses Imperial units (feet/inches, e.g. 3'-0"", 36"", 1/2""), automatically convert precisely to millimeters (1 inch = 25.4mm).
-   - If a dimension is omitted on the cut-sheet, infer standard architectural/ergonomic conventions (e.g. standard desk height=720-750mm, table depth=700-800mm, door leaf thickness=44mm).
-3. REFERENCE PLANES & ORIGIN:
-   - The family origin (0,0,0) represents the intersection of Center (Left/Right) and Center (Front/Back) on the Reference Level.
-   - Center-symmetric families should bound MinX to -Width/2 and MaxX to +Width/2.
-4. GEOMETRY & PROFILES:
-   - Supported profile_type values: 'Rectangle', 'Cylinder' (specify radius_mm, min_x_mm/min_y_mm as center), and 'HollowBox' (specify wall_thickness_mm for frames/tubes).
-   - StartZ and EndZ define vertical extrusion limits.
-5. NESTED SUB-COMPONENTS & HARDWARE:
-   - Decompose distinct sub-assemblies (e.g., door handles, locks, sashes, table legs, casters) into 'nested_families'.
-   - Shared Families: Set 'is_shared: true' on nested families when the sub-component should be independently schedulable in Revit project schedules.
-   - Parameter Bindings: Map sub-component parameters to host master parameters (e.g., {'Handle_Length': 'Lever_Length', 'Leg_Height': 'Table_Height'}).
-6. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
+HYBRID PARAMETER & GEOMETRY EXTRACTION RULES:
+1. INPUT PRIORITY:
+   - If the user provides BOTH a prompt and a PDF/image: use the PDF/image for full component geometry and dimensions, while letting explicit numbers in the user's prompt override specific dimensions.
+   - If the user provides ONLY a PDF/image (empty or brief prompt): extract the product name, category, overall Width, Depth, Height, thickness, frame/panel/leg profiles, and hardware directly from the cut-sheet drawing and tables.
+   - If the user provides ONLY a text prompt: synthesize the complete architectural component and infer standard ergonomic/architectural dimensions for any unspecified values.
+2. UNIT CONVERSION:
+   - Convert all dimensions to millimeters (1 inch = 25.4 mm, 1 foot = 304.8 mm, 1 cm = 10 mm, 1 m = 1000 mm).
+3. NON-EMPTY 3D GEOMETRY REQUIREMENT (CRITICAL):
+   - 'host_extrusions' MUST NEVER BE EMPTY. You MUST decompose the component into 2 to 10 realistic 3D solid extrusions (e.g. frames, panels, glazing, tabletop, legs, shelves, baseplates, shafts, capitals) with explicit non-zero bounding boxes (min_x_mm < max_x_mm, min_y_mm < max_y_mm, start_z_mm < end_z_mm).
+   - Center-symmetric families have origin (0,0,0) at Center Left/Right and Center Front/Back on Reference Level (min_x_mm = -Width/2, max_x_mm = +Width/2, min_y_mm = -Depth/2, max_y_mm = +Depth/2).
+4. EXACT JSON SCHEMA FORMAT (USE THESE EXACT SNAKE_CASE FIELD NAMES):
+{
+  ""master_family_name"": ""Parametric_Component_Name"",
+  ""family_category"": ""Doors | Windows | Furniture | Casework | Columns | Generic Models | Specialty Equipment"",
+  ""template_name"": ""Metric Generic Model.rft"",
+  ""master_parameters"": [
+    { ""name"": ""Width"", ""data_type"": ""Length"", ""default_value_mm"": 1200, ""is_instance"": false, ""formula"": null },
+    { ""name"": ""Depth"", ""data_type"": ""Length"", ""default_value_mm"": 600, ""is_instance"": false, ""formula"": null },
+    { ""name"": ""Height"", ""data_type"": ""Length"", ""default_value_mm"": 750, ""is_instance"": false, ""formula"": null },
+    { ""name"": ""Thickness"", ""data_type"": ""Length"", ""default_value_mm"": 30, ""is_instance"": false, ""formula"": null }
+  ],
+  ""reference_planes"": [
+    { ""name"": ""Left_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": -600, ""driven_by_parameter"": ""Width"" },
+    { ""name"": ""Right_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": 600, ""driven_by_parameter"": ""Width"" },
+    { ""name"": ""Front_Plane"", ""orientation"": ""Y"", ""offset_from_origin_mm"": -300, ""driven_by_parameter"": ""Depth"" },
+    { ""name"": ""Back_Plane"", ""orientation"": ""Y"", ""offset_from_origin_mm"": 300, ""driven_by_parameter"": ""Depth"" },
+    { ""name"": ""Top_Plane"", ""orientation"": ""Z"", ""offset_from_origin_mm"": 750, ""driven_by_parameter"": ""Height"" }
+  ],
+  ""host_extrusions"": [
+    {
+      ""name"": ""Main_Panel_Or_Frame"",
+      ""profile_type"": ""Rectangle | Cylinder | HollowBox"",
+      ""min_x_mm"": -600,
+      ""max_x_mm"": 600,
+      ""min_y_mm"": -300,
+      ""max_y_mm"": 300,
+      ""radius_mm"": 0,
+      ""wall_thickness_mm"": 0,
+      ""start_z_mm"": 720,
+      ""end_z_mm"": 750,
+      ""width_parameter"": ""Width"",
+      ""depth_parameter"": ""Depth"",
+      ""height_parameter"": ""Height""
+    }
+  ],
+  ""nested_families"": [
+    {
+      ""nested_family_name"": ""SubComponent_Hardware_Or_Leg"",
+      ""template_name"": ""Metric Generic Model.rft"",
+      ""is_shared"": true,
+      ""visibility_parameter"": null,
+      ""sub_parameters"": [
+        { ""name"": ""Sub_Height"", ""data_type"": ""Length"", ""default_value_mm"": 720, ""is_instance"": false }
+      ],
+      ""sub_extrusions"": [
+        {
+          ""name"": ""Sub_Solid"",
+          ""profile_type"": ""Cylinder"",
+          ""min_x_mm"": -25,
+          ""max_x_mm"": 25,
+          ""min_y_mm"": -25,
+          ""max_y_mm"": 25,
+          ""radius_mm"": 25,
+          ""start_z_mm"": 0,
+          ""end_z_mm"": 720,
+          ""height_parameter"": ""Sub_Height""
+        }
+      ],
+      ""placement_offset_mm"": { ""x"": -550, ""y"": -250, ""z"": 0 },
+      ""parameter_bindings"": { ""Sub_Height"": ""Height"" }
+    }
+  ]
+}
+RETURN ONLY VALID JSON matching this exact structure without markdown commentary.";
 
         /// <summary>
-        /// Sends prompt and optional image to Gemini API and receives a validated FamilySchema.
+        /// Sends prompt and optional PDF/image to Gemini 3/4 API and receives a validated, non-empty FamilySchema.
         /// </summary>
         public async Task<FamilySchema> GenerateFamilySchemaAsync(
             string apiKey, 
@@ -71,16 +139,18 @@ HYBRID PARAMETER EXTRACTION RULES:
         {
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                // Fallback to deterministic local engine if no API key provided
                 return GenerateDeterministicFallback(userPrompt, imageFilePath);
             }
 
             var parts = new List<object>();
+            string extractedDocContext = "";
 
-            // If an image or PDF is provided, optimize image size before encoding to base64
-            // Drastically reduces token usage, eliminates timeouts, and speeds up response from 30s to <1s.
+            // 1. Attach PDF / Image for multimodal vision AND pre-extract text from PDF cut-sheets
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
+                string ext = Path.GetExtension(imageFilePath).ToLowerInvariant();
+                ReportStatus($"📄 Reading attached {(ext == ".pdf" ? "PDF cut-sheet" : "reference image")}: {Path.GetFileName(imageFilePath)}...");
+
                 byte[] imageBytes = OptimizeImageForVision(imageFilePath!, out string mimeType);
                 parts.Add(new
                 {
@@ -90,32 +160,52 @@ HYBRID PARAMETER EXTRACTION RULES:
                         data = Convert.ToBase64String(imageBytes)
                     }
                 });
+
+                if (ext == ".pdf")
+                {
+                    string pdfText = ExtractTextFromPdf(imageFilePath!);
+                    if (!string.IsNullOrWhiteSpace(pdfText))
+                    {
+                        string snippet = pdfText.Length > 4000 ? pdfText.Substring(0, 4000) : pdfText;
+                        extractedDocContext = $"\n\n[EXTRACTED PDF CUT-SHEET TEXT & DIMENSIONS]:\n{snippet}";
+                    }
+                }
+                else
+                {
+                    extractedDocContext = $"\n\n[ATTACHED IMAGE FILENAME]: {Path.GetFileNameWithoutExtension(imageFilePath)}";
+                }
             }
 
-            // User prompt
+            // 2. Construct rich hybrid prompt (works with PDF-only, Prompt-only, or Both)
+            string effectivePrompt = string.IsNullOrWhiteSpace(userPrompt)
+                ? "Analyze the attached cut-sheet / image in complete detail. Identify the architectural product type, all overall and component dimensions (converting to mm), and generate the complete 3D parametric Revit family with all solid extrusions, reference planes, master parameters, and nested sub-components."
+                : userPrompt.Trim();
+
             parts.Add(new
             {
-                text = $"Generate Revit Parametric Family specification for: {userPrompt}"
+                text = $"Generate a complete, non-empty 3D Revit Parametric Family JSON specification.\nUser Design Request: {effectivePrompt}{extractedDocContext}\n\nIMPORTANT: Populate 'host_extrusions' with all 3D solid parts (min_x_mm, max_x_mm, min_y_mm, max_y_mm, start_z_mm, end_z_mm in mm) and 'master_parameters' with non-zero default_value_mm."
             });
 
-            // Clean up and normalize model name
+            // 3. Clean up and normalize model name
             string cleanModel = NormalizeModelName(modelName);
 
-            // 1. Ask Google which Gemini 3 / Gemini 4 models THIS API key can access (free call, no tokens consumed).
+            ReportStatus($"🔍 Checking available Gemini 3 / 4 models for your API key...");
             List<string> availableModels = await GetAvailableModelsAsync(apiKey, cancellationToken);
 
             var errors = new List<string>();
             var candidateModels = BuildCandidateList(cleanModel, availableModels);
 
-            foreach (var targetModel in candidateModels)
+            for (int idx = 0; idx < candidateModels.Count; idx++)
             {
+                var targetModel = candidateModels[idx];
+                ReportStatus($"🧠 AI Active Reasoning & 3D BIM Modelling with '{targetModel}' (attempt {idx + 1}/{candidateModels.Count})...");
+
                 string jsonPayload = BuildRequestPayload(parts, temperature);
                 try
                 {
                     string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                     using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                    // Generous per-model timeout: multimodal PDF analysis on reasoning models can take 30-60s.
                     using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
@@ -126,8 +216,10 @@ HYBRID PARAMETER EXTRACTION RULES:
                     {
                         try
                         {
-                            var schema = ParseGeminiResponse(body);
+                            ReportStatus($"🔧 Parsing & verifying 3D geometry from '{targetModel}'...");
+                            var schema = ParseGeminiResponse(body, userPrompt, imageFilePath);
                             LastUsedModel = targetModel;
+                            ReportStatus($"✅ AI Synthesis complete ({schema.HostExtrusions.Count} host extrusions, {schema.NestedFamilies.Count} nested components).");
                             return schema;
                         }
                         catch (Exception parseEx)
@@ -139,7 +231,6 @@ HYBRID PARAMETER EXTRACTION RULES:
 
                     string apiMessage = ExtractApiErrorMessage(body);
 
-                    // Invalid API key: no other model will work either -> stop immediately.
                     if (IsAuthError(response.StatusCode, body))
                     {
                         throw new GeminiAuthException(
@@ -163,7 +254,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                 }
             }
 
-            // Report EVERY model's failure reason, not just the last one.
             throw new InvalidOperationException(
                 "All Gemini 3 / Gemini 4 models failed:\n  • " + string.Join("\n  • ", errors));
         }
@@ -179,7 +269,6 @@ HYBRID PARAMETER EXTRACTION RULES:
         private static string NormalizeModelName(string? modelName)
         {
             string m = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName!.Trim();
-            // ComboBox display text may include a description, e.g. "gemini-3.8-flash (Recommended)"
             int paren = m.IndexOf(' ');
             if (paren > 0) m = m.Substring(0, paren);
             if (m.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) m = m.Substring(7);
@@ -196,10 +285,6 @@ HYBRID PARAMETER EXTRACTION RULES:
 
         private static readonly Dictionary<string, List<string>> _modelCache = new Dictionary<string, List<string>>();
 
-        /// <summary>
-        /// Calls the ListModels endpoint to discover which generateContent-capable models the key can access.
-        /// Returns an empty list if discovery fails for network reasons (caller then uses Gemini 3/4 fallbacks).
-        /// </summary>
         private async Task<List<string>> GetAvailableModelsAsync(string apiKey, CancellationToken ct)
         {
             lock (_modelCache)
@@ -271,15 +356,10 @@ HYBRID PARAMETER EXTRACTION RULES:
                    n.Contains("embedding") || n.Contains("robotics") || n.Contains("computer-use") || n.Contains("gemma") || n.Contains("cyber");
         }
 
-        /// <summary>
-        /// Always tries the user's selected Gemini 3 / 4 model first, followed by any Gemini 3 / 4 models
-        /// discovered on the account and the canonical Gemini 3 / 4 fallback chain.
-        /// </summary>
         private static List<string> BuildCandidateList(string userModel, List<string> available)
         {
             var list = new List<string> { userModel };
 
-            // First add any Gemini 3/4 models confirmed available via ListModels
             foreach (var m in Gemini3And4Models.Where(p => available.Contains(p, StringComparer.OrdinalIgnoreCase))
                          .Concat(available.Where(a => !IsUnsuitableModel(a)).OrderByDescending(a => a)))
             {
@@ -287,7 +367,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                     list.Add(m);
             }
 
-            // Ensure standard Gemini 3 & 4 endpoints are in the fallback chain
             foreach (var m in Gemini3And4Models)
             {
                 if (list.Count >= 5) break;
@@ -347,7 +426,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             _ => ""
         };
 
-        private FamilySchema ParseGeminiResponse(string rawJson)
+        private FamilySchema ParseGeminiResponse(string rawJson, string userPrompt = "", string? imageFilePath = null)
         {
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
@@ -372,6 +451,7 @@ HYBRID PARAMETER EXTRACTION RULES:
                     throw new InvalidOperationException("output was truncated (MAX_TOKENS) - JSON incomplete");
                 if (finishReason == "SAFETY" || finishReason == "RECITATION" || finishReason == "PROHIBITED_CONTENT")
                     throw new InvalidOperationException($"response blocked by Google ({finishReason})");
+
                 if (firstCandidate.TryGetProperty("content", out var content) &&
                     content.TryGetProperty("parts", out var parts) &&
                     parts.GetArrayLength() > 0)
@@ -384,20 +464,11 @@ HYBRID PARAMETER EXTRACTION RULES:
                         if (!isThought && p.TryGetProperty("text", out var tx)) { found = tx.GetString(); break; }
                     }
                     string textContent = found ?? "{}";
-                    
+
                     textContent = textContent.Trim();
-                    if (textContent.StartsWith("```json"))
-                    {
-                        textContent = textContent.Substring(7);
-                    }
-                    else if (textContent.StartsWith("```"))
-                    {
-                        textContent = textContent.Substring(3);
-                    }
-                    if (textContent.EndsWith("```"))
-                    {
-                        textContent = textContent.Substring(0, textContent.Length - 3);
-                    }
+                    if (textContent.StartsWith("```json")) textContent = textContent.Substring(7);
+                    else if (textContent.StartsWith("```")) textContent = textContent.Substring(3);
+                    if (textContent.EndsWith("```")) textContent = textContent.Substring(0, textContent.Length - 3);
                     textContent = textContent.Trim();
 
                     int firstBrace = textContent.IndexOf('{');
@@ -407,20 +478,257 @@ HYBRID PARAMETER EXTRACTION RULES:
                         textContent = textContent.Substring(firstBrace, lastBrace - firstBrace + 1);
                     }
 
-                    var options = new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    };
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var schema = JsonSerializer.Deserialize<FamilySchema>(textContent, options) ?? new FamilySchema();
 
-                    var schema = JsonSerializer.Deserialize<FamilySchema>(textContent, options);
-                    if (schema != null)
+                    // Also map alternative/camelCase property names if the AI model used them
+                    using (var schemaDoc = JsonDocument.Parse(textContent))
                     {
-                        return schema;
+                        MapAlternativeJsonFields(schemaDoc.RootElement, schema);
                     }
+
+                    // Ensure non-empty geometry: repair bounding boxes and synthesize extrusions from AI parameters if needed
+                    EnsureNonEmptyGeometry(schema, userPrompt, imageFilePath, textContent);
+
+                    return schema;
                 }
             }
 
             throw new InvalidOperationException("Failed to extract valid FamilySchema from Gemini response.");
+        }
+
+        /// <summary>
+        /// Captures alternative/camelCase JSON keys if a model returned camelCase or shorthand names.
+        /// </summary>
+        private static void MapAlternativeJsonFields(JsonElement root, FamilySchema schema)
+        {
+            if (root.ValueKind != JsonValueKind.Object) return;
+
+            string? TryStr(JsonElement el, params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    foreach (var prop in el.EnumerateObject())
+                    {
+                        if (prop.Name.Equals(k, StringComparison.OrdinalIgnoreCase) && prop.Value.ValueKind == JsonValueKind.String)
+                            return prop.Value.GetString();
+                    }
+                }
+                return null;
+            }
+
+            double? TryNum(JsonElement el, params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    foreach (var prop in el.EnumerateObject())
+                    {
+                        if (prop.Name.Equals(k, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetDouble(out double d)) return d;
+                            if (prop.Value.ValueKind == JsonValueKind.String && double.TryParse(prop.Value.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double ds)) return ds;
+                        }
+                    }
+                }
+                return null;
+            }
+
+            if (schema.MasterFamilyName == "ParametricHostFamily" || string.IsNullOrWhiteSpace(schema.MasterFamilyName))
+            {
+                string? name = TryStr(root, "masterFamilyName", "family_name", "familyName", "name", "product_name", "productName", "title");
+                if (!string.IsNullOrWhiteSpace(name)) schema.MasterFamilyName = Regex.Replace(name!.Trim(), @"[^\w]", "_");
+            }
+
+            if (schema.FamilyCategory == "Generic Models" || string.IsNullOrWhiteSpace(schema.FamilyCategory))
+            {
+                string? cat = TryStr(root, "familyCategory", "category", "revit_category", "revitCategory", "type");
+                if (!string.IsNullOrWhiteSpace(cat)) schema.FamilyCategory = cat!;
+            }
+
+            // Map parameters if empty
+            if (schema.MasterParameters.Count == 0)
+            {
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name.Equals("masterParameters", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("parameters", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("family_parameters", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("dimensions", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in prop.Value.EnumerateArray())
+                            {
+                                if (item.ValueKind != JsonValueKind.Object) continue;
+                                string? pName = TryStr(item, "name", "parameter_name", "parameterName", "label");
+                                double? pVal = TryNum(item, "default_value_mm", "defaultValueMm", "default_value", "defaultValue", "value_mm", "valueMm", "value");
+                                if (!string.IsNullOrWhiteSpace(pName) && pVal.HasValue && pVal.Value > 0)
+                                {
+                                    schema.MasterParameters.Add(new MasterParameterDef
+                                    {
+                                        Name = Regex.Replace(pName!.Trim(), @"[^\w]", "_"),
+                                        DataType = TryStr(item, "data_type", "dataType", "type") ?? "Length",
+                                        DefaultValueMm = pVal.Value
+                                    });
+                                }
+                            }
+                        }
+                        else if (prop.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var kv in prop.Value.EnumerateObject())
+                            {
+                                if (kv.Value.ValueKind == JsonValueKind.Number && kv.Value.TryGetDouble(out double d) && d > 0)
+                                {
+                                    schema.MasterParameters.Add(new MasterParameterDef
+                                    {
+                                        Name = Regex.Replace(kv.Name.Trim(), @"[^\w]", "_"),
+                                        DataType = "Length",
+                                        DefaultValueMm = d
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Map extrusions if empty
+            if (schema.HostExtrusions.Count == 0)
+            {
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name.Equals("hostExtrusions", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("extrusions", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("geometry", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("solids", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("elements", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("parts", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("components", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in prop.Value.EnumerateArray())
+                            {
+                                if (item.ValueKind != JsonValueKind.Object) continue;
+                                double? w = TryNum(item, "width_mm", "widthMm", "width", "w");
+                                double? d = TryNum(item, "depth_mm", "depthMm", "depth", "d", "length_mm", "length");
+                                double? h = TryNum(item, "height_mm", "heightMm", "height", "h", "thickness_mm", "thickness");
+
+                                double minX = TryNum(item, "min_x_mm", "minXMm", "min_x", "minX", "x_min") ?? (w.HasValue ? -w.Value / 2.0 : 0);
+                                double maxX = TryNum(item, "max_x_mm", "maxXMm", "max_x", "maxX", "x_max") ?? (w.HasValue ? w.Value / 2.0 : 0);
+                                double minY = TryNum(item, "min_y_mm", "minYMm", "min_y", "minY", "y_min") ?? (d.HasValue ? -d.Value / 2.0 : 0);
+                                double maxY = TryNum(item, "max_y_mm", "maxYMm", "max_y", "maxY", "y_max") ?? (d.HasValue ? d.Value / 2.0 : 0);
+                                double startZ = TryNum(item, "start_z_mm", "startZMm", "start_z", "startZ", "z_min", "base_z", "bottom_z") ?? 0;
+                                double endZ = TryNum(item, "end_z_mm", "endZMm", "end_z", "endZ", "z_max", "top_z") ?? (h.HasValue ? startZ + h.Value : 0);
+
+                                if (maxX > minX || maxY > minY || endZ > startZ)
+                                {
+                                    schema.HostExtrusions.Add(new ExtrusionDef
+                                    {
+                                        Name = TryStr(item, "name", "id", "label", "part") ?? $"Part_{schema.HostExtrusions.Count + 1}",
+                                        ProfileType = TryStr(item, "profile_type", "profileType", "profile", "shape") ?? "Rectangle",
+                                        MinX_mm = minX,
+                                        MaxX_mm = maxX,
+                                        MinY_mm = minY,
+                                        MaxY_mm = maxY,
+                                        Radius_mm = TryNum(item, "radius_mm", "radiusMm", "radius", "r") ?? 0,
+                                        WallThickness_mm = TryNum(item, "wall_thickness_mm", "wallThicknessMm", "wall_thickness", "wallThickness") ?? 0,
+                                        StartZ_mm = startZ,
+                                        EndZ_mm = endZ > startZ ? endZ : startZ + 50
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Guarantees that a schema returned by Gemini NEVER has empty geometry or zero-sized extrusions.
+        /// If the model extracted dimensions/parameters or category but omitted extrusion coordinates,
+        /// synthesizes complete 3D parametric geometry from the AI-extracted dimensions.
+        /// </summary>
+        private void EnsureNonEmptyGeometry(FamilySchema schema, string userPrompt, string? imageFilePath, string rawAiJson)
+        {
+            double? FindParam(params string[] keywords)
+            {
+                foreach (var kw in keywords)
+                {
+                    var p = schema.MasterParameters.FirstOrDefault(m => m.Name.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0 && m.DefaultValueMm > 0);
+                    if (p != null) return p.DefaultValueMm;
+                }
+                return null;
+            }
+
+            double aiW = FindParam("width", "length", "span") ?? 0;
+            double aiD = FindParam("depth", "projection") ?? 0;
+            double aiH = FindParam("height", "tall") ?? 0;
+            double aiT = FindParam("thick", "thk", "panel", "top", "frame") ?? 0;
+
+            // Repair any extrusion that has 0 X/Y span using the AI's master parameters
+            foreach (var ext in schema.HostExtrusions)
+            {
+                if (Math.Abs(ext.MaxX_mm - ext.MinX_mm) < 1.0)
+                {
+                    double w = ext.Radius_mm > 0 ? ext.Radius_mm * 2 : (aiW > 0 ? aiW : 1000);
+                    ext.MinX_mm = -w / 2.0;
+                    ext.MaxX_mm = w / 2.0;
+                }
+                if (Math.Abs(ext.MaxY_mm - ext.MinY_mm) < 1.0)
+                {
+                    double d = ext.Radius_mm > 0 ? ext.Radius_mm * 2 : (aiD > 0 ? aiD : 600);
+                    ext.MinY_mm = -d / 2.0;
+                    ext.MaxY_mm = d / 2.0;
+                }
+                if (ext.EndZ_mm <= ext.StartZ_mm)
+                {
+                    ext.EndZ_mm = ext.StartZ_mm + (aiH > 0 ? aiH : 50);
+                }
+            }
+
+            // If HostExtrusions AND NestedFamilies are still empty, build complete 3D geometry from the AI's extracted parameters + cut-sheet
+            if (schema.HostExtrusions.Count == 0 && schema.NestedFamilies.Count == 0)
+            {
+                string combinedHint = $"{userPrompt} {schema.MasterFamilyName} {schema.FamilyCategory} {rawAiJson}";
+                var enriched = GenerateDeterministicFallback(combinedHint, imageFilePath);
+
+                // Override with any explicit AI-extracted dimensions
+                if (aiW >= 50 || aiD >= 50 || aiH >= 50)
+                {
+                    string cat = DetectCategory($"{userPrompt} {schema.MasterFamilyName} {schema.FamilyCategory}") ?? "generic";
+                    var defs = CategoryDefaults[cat];
+                    double w = aiW >= 50 ? aiW : defs.W;
+                    double d = aiD >= 50 ? aiD : defs.D;
+                    double h = aiH >= 50 ? aiH : defs.H;
+                    double t = aiT >= 2 ? aiT : defs.T;
+
+                    enriched = cat switch
+                    {
+                        "door" => CreateDoorSchema(w, h, t),
+                        "window" => CreateWindowSchema(w, h, d),
+                        "chair" => CreateChairSchema(w, d, h, t),
+                        "table" => CreateWorkstationSchema(w, d, h, t),
+                        "casework" => CreateCaseworkSchema(w, d, h, t),
+                        "baseplate" => CreateBaseplateJointSchema(w, d, t, h),
+                        "canopy" => CreateCanopySchema(w, d, t, h),
+                        "column" => CreateColumnSchema(w, d, h),
+                        _ => CreateDynamicUniversalSchema(schema.MasterFamilyName, w, d, h, t)
+                    };
+                }
+
+                if (!string.IsNullOrWhiteSpace(schema.MasterFamilyName) && schema.MasterFamilyName != "ParametricHostFamily")
+                    enriched.MasterFamilyName = schema.MasterFamilyName;
+                if (!string.IsNullOrWhiteSpace(schema.FamilyCategory) && schema.FamilyCategory != "Generic Models")
+                    enriched.FamilyCategory = schema.FamilyCategory;
+                if (schema.MasterParameters.Count == 0)
+                    schema.MasterParameters = enriched.MasterParameters;
+                if (schema.ReferencePlanes.Count == 0)
+                    schema.ReferencePlanes = enriched.ReferencePlanes;
+
+                schema.HostExtrusions = enriched.HostExtrusions;
+                schema.NestedFamilies = enriched.NestedFamilies;
+            }
         }
 
         /// <summary>
@@ -745,9 +1053,9 @@ HYBRID PARAMETER EXTRACTION RULES:
         }
 
         /// <summary>
-        /// Extracts text from a PDF without external libraries: inflates FlateDecode content streams
-        /// and decodes text-showing operators (Tj, TJ, ', ").
-        /// Limitations: scanned PDFs, outlined CAD text and custom CID font encodings yield little/no text.
+        /// Extracts text from a PDF without external libraries:
+        /// Pass 1 collects /ToUnicode CMap tables (beginbfchar / beginbfrange) for subsetted CID fonts;
+        /// Pass 2 inflates FlateDecode content streams and decodes text operators (Tj, TJ, ', ").
         /// </summary>
         private static string ExtractTextFromPdf(string pdfPath)
         {
@@ -757,6 +1065,8 @@ HYBRID PARAMETER EXTRACTION RULES:
                 var latin1 = Encoding.GetEncoding(28591);
                 string raw = latin1.GetString(bytes);
                 var sb = new StringBuilder();
+                var cmap = new Dictionary<int, string>();
+                var textStreams = new List<string>();
 
                 int pos = 0;
                 while (true)
@@ -775,7 +1085,7 @@ HYBRID PARAMETER EXTRACTION RULES:
                     string dict = dictStart >= 0 ? raw.Substring(dictStart, s - dictStart) : "";
                     pos = e + 9;
 
-                    if (dict.Contains("/Image") || dict.Contains("/FontFile") || dict.Contains("/XRef") || dict.Contains("/Metadata"))
+                    if (dict.Contains("/Image") || dict.Contains("/FontFile") || dict.Contains("/XRef"))
                         continue;
 
                     int len = e - dataStart;
@@ -789,15 +1099,31 @@ HYBRID PARAMETER EXTRACTION RULES:
                     }
                     else if (dict.Contains("/Filter"))
                     {
-                        continue; // other filters (DCT, LZW, ASCII85) not supported
+                        continue;
                     }
                     else
                     {
                         content = raw.Substring(dataStart, len);
                     }
 
-                    if (content.Contains("BT")) ExtractTextOperators(content, sb);
+                    if (content.Contains("beginbfchar") || content.Contains("beginbfrange"))
+                    {
+                        ParseToUnicodeCMap(content, cmap);
+                    }
+                    if (content.Contains("BT"))
+                    {
+                        textStreams.Add(content);
+                    }
                 }
+
+                foreach (var content in textStreams)
+                {
+                    ExtractTextOperators(content, sb, cmap);
+                }
+
+                // Always include the PDF filename as additional context (e.g. "Double_Door_1800x2100.pdf")
+                string fileHint = Path.GetFileNameWithoutExtension(pdfPath).Replace('_', ' ').Replace('-', ' ');
+                sb.Append(' ').Append(fileHint);
 
                 return Regex.Replace(sb.ToString(), @"[ \t]+", " ");
             }
@@ -807,9 +1133,46 @@ HYBRID PARAMETER EXTRACTION RULES:
             }
         }
 
+        private static void ParseToUnicodeCMap(string cmapContent, Dictionary<int, string> cmap)
+        {
+            foreach (Match block in Regex.Matches(cmapContent, @"beginbfchar(.*?)endbfchar", RegexOptions.Singleline))
+            {
+                foreach (Match m in Regex.Matches(block.Groups[1].Value, @"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>"))
+                {
+                    int srcCode = Convert.ToInt32(m.Groups[1].Value, 16);
+                    string dst = HexToUnicodeString(m.Groups[2].Value);
+                    if (!string.IsNullOrEmpty(dst)) cmap[srcCode] = dst;
+                }
+            }
+            foreach (Match block in Regex.Matches(cmapContent, @"beginbfrange(.*?)endbfrange", RegexOptions.Singleline))
+            {
+                foreach (Match m in Regex.Matches(block.Groups[1].Value, @"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>"))
+                {
+                    int start = Convert.ToInt32(m.Groups[1].Value, 16);
+                    int end = Convert.ToInt32(m.Groups[2].Value, 16);
+                    int target = Convert.ToInt32(m.Groups[3].Value, 16);
+                    for (int c = start; c <= end && (c - start) < 512; c++)
+                    {
+                        cmap[c] = char.ConvertFromUtf32(target + (c - start));
+                    }
+                }
+            }
+        }
+
+        private static string HexToUnicodeString(string hex)
+        {
+            if (hex.Length % 4 == 0)
+            {
+                var bytes = new byte[hex.Length / 2];
+                for (int i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                return Encoding.BigEndianUnicode.GetString(bytes);
+            }
+            int code = Convert.ToInt32(hex, 16);
+            return code > 0 ? char.ConvertFromUtf32(code) : "";
+        }
+
         private static byte[]? Inflate(byte[] src, int offset, int length)
         {
-            // zlib wrapper: skip 2-byte header, DeflateStream ignores trailing adler32
             for (int skip = 2; skip >= 0; skip -= 2)
             {
                 try
@@ -829,7 +1192,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             @"\((?:\\.|[^\\)])*\)|<[0-9A-Fa-f\s]*>|-?\d*\.?\d+|[A-Za-z*'""]+|\[|\]",
             RegexOptions.Compiled);
 
-        private static void ExtractTextOperators(string content, StringBuilder sb)
+        private static void ExtractTextOperators(string content, StringBuilder sb, Dictionary<int, string> cmap)
         {
             foreach (Match block in Regex.Matches(content, @"\bBT\b(.*?)\bET\b", RegexOptions.Singleline))
             {
@@ -837,8 +1200,8 @@ HYBRID PARAMETER EXTRACTION RULES:
                 foreach (Match tok in PdfTokenRx.Matches(block.Groups[1].Value))
                 {
                     string t = tok.Value;
-                    if (t[0] == '(') sb.Append(UnescapePdfString(t.Substring(1, t.Length - 2)));
-                    else if (t[0] == '<') sb.Append(DecodeHexString(t.Substring(1, t.Length - 2)));
+                    if (t[0] == '(') sb.Append(UnescapePdfString(t.Substring(1, t.Length - 2), cmap));
+                    else if (t[0] == '<') sb.Append(DecodeHexString(t.Substring(1, t.Length - 2), cmap));
                     else if (t == "[") inArray = true;
                     else if (t == "]") inArray = false;
                     else if (inArray && (char.IsDigit(t[t.Length - 1])))
@@ -853,7 +1216,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             }
         }
 
-        private static string UnescapePdfString(string s)
+        private static string UnescapePdfString(string s, Dictionary<int, string>? cmap = null)
         {
             var sb = new StringBuilder(s.Length);
             for (int i = 0; i < s.Length; i++)
@@ -877,7 +1240,7 @@ HYBRID PARAMETER EXTRACTION RULES:
                         }
                         else if (n != '\r' && n != '\n')
                         {
-                            sb.Append(n); // PDF spec: unknown escape -> backslash ignored, char kept
+                            sb.Append(n);
                         }
                         break;
                 }
@@ -885,21 +1248,48 @@ HYBRID PARAMETER EXTRACTION RULES:
             return sb.ToString();
         }
 
-        private static string DecodeHexString(string hex)
+        private static string DecodeHexString(string hex, Dictionary<int, string> cmap)
         {
             hex = Regex.Replace(hex, @"\s", "");
+            if (hex.Length == 0) return "";
             if (hex.Length % 2 == 1) hex += "0";
+
+            // 1. Try 2-byte CID lookup in /ToUnicode CMap first
+            if (cmap.Count > 0 && hex.Length % 4 == 0)
+            {
+                var sb = new StringBuilder();
+                bool any = false;
+                for (int i = 0; i < hex.Length; i += 4)
+                {
+                    int cid = Convert.ToInt32(hex.Substring(i, 4), 16);
+                    if (cmap.TryGetValue(cid, out string? mapped)) { sb.Append(mapped); any = true; }
+                }
+                if (any) return sb.ToString();
+            }
+
+            // 2. Try 1-byte lookup in /ToUnicode CMap
+            if (cmap.Count > 0)
+            {
+                var sb = new StringBuilder();
+                bool any = false;
+                for (int i = 0; i < hex.Length; i += 2)
+                {
+                    int cid = Convert.ToInt32(hex.Substring(i, 2), 16);
+                    if (cmap.TryGetValue(cid, out string? mapped)) { sb.Append(mapped); any = true; }
+                }
+                if (any) return sb.ToString();
+            }
+
             var bytes = new byte[hex.Length / 2];
             for (int i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
 
-            // 2-byte with zero high bytes → UTF-16BE-like; otherwise single-byte if printable
             if (bytes.Length >= 2 && bytes.Length % 2 == 0)
             {
                 bool utf16 = true;
                 for (int i = 0; i < bytes.Length; i += 2) if (bytes[i] != 0) { utf16 = false; break; }
                 if (utf16) return Encoding.BigEndianUnicode.GetString(bytes);
             }
-            foreach (var b in bytes) if (b < 32 || b > 126) return ""; // CID-encoded glyphs: not decodable without font CMap
+            foreach (var b in bytes) if (b < 32 || b > 126) return "";
             return Encoding.ASCII.GetString(bytes);
         }
 

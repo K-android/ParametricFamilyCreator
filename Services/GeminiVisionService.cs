@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ParametricFamilyForge.Models;
@@ -17,7 +19,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        private const string DefaultGeminiModel = "gemini-3.8";
+        public const string DefaultGeminiModel = "gemini-2.5-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -30,9 +32,7 @@ namespace ParametricFamilyForge.Services
         }
 
         /// <summary>
-        /// Two-pass multimodal reasoning system instruction for Gemini 3.8 / 3.6.
-        /// Extracts accurate dimensional data from Prompts, CAD/PDF Cut-Sheets, and Photos,
-        /// strictly prioritizing user-explicit parameters while automatically inferring the rest.
+        /// Two-pass multimodal reasoning system instruction for Gemini Vision.
         /// </summary>
         public const string FamilyForgeSystemInstruction = 
 @"You are a Principal BIM/VDC Lead and Autodesk Revit API Parametric Content Specialist.
@@ -51,48 +51,14 @@ HYBRID PARAMETER EXTRACTION RULES:
 4. GEOMETRY & PROFILES:
    - Supported profile_type values: 'Rectangle', 'Cylinder' (specify radius_mm, min_x_mm/min_y_mm as center), and 'HollowBox' (specify wall_thickness_mm for frames/tubes).
    - StartZ and EndZ define vertical extrusion limits.
-5. UNIVERSAL AEC TYPOLOGY DECOMPOSITION (APPLIES TO ALL CATEGORIES):
-   Whenever any architectural, structural, or interior type is named, synthesize its canonical BIM hierarchy:
-   - WINDOWS:
-     * Casement: Outer perimeter frame (HollowBox) + nested operable sash + glass infill + handle/crank.
-     * Double-Hung: Master frame + Upper Sash nested at top + Lower Sash nested at bottom overlapping at Meeting Rail.
-     * Sliding / Glider: Perimeter frame with sill track + bypass sliding sashes with interlock stiles.
-     * Fixed / Picture: Perimeter frame (HollowBox) with direct central glass infill.
-     * Awning / Hopper: Top/bottom hinged perimeter sash with friction hinges.
-   - DOORS:
-     * Single / Double Swing: Perimeter jambs/frame + leaf/leaves (with thickness) + nested lever handle/push-pull hardware.
-     * Pivot Door: Oversized leaf + offset top/bottom pivot spindle hardware + recessed floor closer.
-     * Sliding Barn / Pocket Door: Leaf panel + overhead track extrusion + nested roller hangers/guides.
-   - CASEWORK & CABINETRY:
-     * Base Cabinet: Recessed toe-kick base (StartZ=0 to 100mm) + box carcass + countertop slab + nested doors/drawers with pulls.
-     * Upper / Wall Cabinet: Wall-hung carcass box + nested hinged front doors + internal shelves.
-     * Credenza / Sideboard: Outer casing/wrap + nested leg frame/plinths + sliding or hinged door panels.
-   - TABLES & DESKING:
-     * Workstation / Desk: Tabletop slab + modesty panel + 4 nested legs (cylindrical or hollow tube) + cable port grommets.
-     * Conference Table: Large multi-section slab or boat-shape + heavy pedestal stubs or perimeter base + power/data troughs.
-     * Pedestal / Cafe Table: Central cylindrical column + circular/cross ground base + top plate.
-   - SEATING & FURNITURE:
-     * Task Chair: Cushioned seat slab + contoured backrest + 5-star spider base with cylindrical gas lift and casters.
-     * Lounge Chair / Sofa: Upholstered carcass + seat/back cushions + nested timber/metal leg base.
-     * Bench: Solid timber/metal bench slab + end trestle legs or U-frame supports.
-   - STRUCTURAL & FACADE JOINTS:
-     * Column Baseplate: Solid steel plate extrusion + central hollow column stub + 4 nested anchor bolts (Cylinder) with nuts/washers.
-     * Beam Clip Angle / Shear Tab: Flange/web angle plate + nested bolt arrays.
-     * Facade Spider Fitting: Central structural boss + 2 or 4 articulated spider arms with glass bolt standoffs.
-   - BALUSTRADES & SCREENING:
-     * Glass Guardrail: Continuous base shoe channel (HollowBox) + vertical glass infill panel + top cap rail.
-     * Louver Screen: Outer framing channel + arrayed angled louver blades (Extrusions).
-6. NESTED SUB-COMPONENTS, HARDWARE & COMPONENT SWAPPING:
+5. NESTED SUB-COMPONENTS & HARDWARE:
    - Decompose distinct sub-assemblies (e.g., door handles, locks, sashes, table legs, casters) into 'nested_families'.
-   - Component Options / Swapping (e.g. Lever Handle vs Pull Bar): You can define multiple alternate nested families. Assign each a unique 'visibility_parameter' (e.g. 'Show_Lever_Handle', 'Show_Pull_Bar') mapped to a Yes/No master parameter so users can toggle or swap them in Revit.
-   - Shared Families: Set 'is_shared: true' on nested families when the sub-component should be independently schedulable in Revit project schedules (e.g., Door Hardware Schedules).
+   - Shared Families: Set 'is_shared: true' on nested families when the sub-component should be independently schedulable in Revit project schedules.
    - Parameter Bindings: Map sub-component parameters to host master parameters (e.g., {'Handle_Length': 'Lever_Length', 'Leg_Height': 'Table_Height'}).
-7. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
+6. RETURN ONLY VALID JSON strictly following the requested schema without any markdown formatting or commentary.";
 
         /// <summary>
         /// Sends prompt and optional image to Gemini API and receives a validated FamilySchema.
-        /// Features multi-model fallback (e.g. gemini-3.8 -> gemini-2.0-flash -> gemini-1.5-flash)
-        /// so it never fails due to endpoint name mismatches.
         /// </summary>
         public async Task<FamilySchema> GenerateFamilySchemaAsync(
             string apiKey, 
@@ -105,7 +71,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 // Fallback to deterministic local engine if no API key provided
-                return GenerateDeterministicFallback(userPrompt);
+                return GenerateDeterministicFallback(userPrompt, imageFilePath);
             }
 
             var parts = new List<object>();
@@ -155,26 +121,21 @@ HYBRID PARAMETER EXTRACTION RULES:
 
             string jsonPayload = JsonSerializer.Serialize(requestBody);
 
-            // Candidate models to try in sequence
-            var candidateModels = new List<string>();
-            string cleanModel = modelName.Trim();
-            
-            // Map 3.8 / 3.6 aliases or add them first
+            // Clean up and normalize model name
+            string cleanModel = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName.Trim();
             if (cleanModel.Contains("3.8") || cleanModel.Contains("3.6"))
             {
-                candidateModels.Add("gemini-2.0-flash");
-                candidateModels.Add("gemini-1.5-flash");
-            }
-            else
-            {
-                candidateModels.Add(cleanModel);
-                if (!cleanModel.Equals("gemini-2.0-flash", StringComparison.OrdinalIgnoreCase))
-                    candidateModels.Add("gemini-2.0-flash");
-                if (!cleanModel.Equals("gemini-1.5-flash", StringComparison.OrdinalIgnoreCase))
-                    candidateModels.Add("gemini-1.5-flash");
+                cleanModel = "gemini-2.5-flash";
             }
 
-            string lastError = "";
+            // Candidate models: prioritize the user's selected model
+            var candidateModels = new List<string> { cleanModel };
+            if (!cleanModel.Equals("gemini-2.5-flash", StringComparison.OrdinalIgnoreCase))
+                candidateModels.Add("gemini-2.5-flash");
+            if (!cleanModel.Equals("gemini-2.0-flash", StringComparison.OrdinalIgnoreCase))
+                candidateModels.Add("gemini-2.0-flash");
+
+            string primaryError = "";
 
             foreach (var targetModel in candidateModels)
             {
@@ -192,18 +153,43 @@ HYBRID PARAMETER EXTRACTION RULES:
                     }
 
                     string errorMsg = await response.Content.ReadAsStringAsync();
-                    lastError = $"[{targetModel} - {response.StatusCode}]: {errorMsg}";
+                    
+                    if (string.IsNullOrEmpty(primaryError))
+                    {
+                        primaryError = $"[Model: {targetModel} - Status: {response.StatusCode}]: {errorMsg}";
+                    }
 
-                    // Try next model in candidate list if this one failed
-                    continue;
+                    // If API key authentication error, DO NOT attempt other models. Throw immediately so the user knows.
+                    if (response.StatusCode == System.Net.HttpStatusCode.BadRequest ||
+                        response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                        response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    {
+                        throw new InvalidOperationException(
+                            $"Gemini API Authentication Failed for model '{targetModel}':\n{errorMsg}\n\n" +
+                            "Please check your API key in the Settings panel (get a free key at https://aistudio.google.com)."
+                        );
+                    }
+
+                    // If 404 (model not found on API), try next candidate model
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        continue;
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
-                    lastError = ex.Message;
+                    if (string.IsNullOrEmpty(primaryError))
+                    {
+                        primaryError = ex.Message;
+                    }
                 }
             }
 
-            throw new InvalidOperationException($"Gemini API Error: {lastError}\n\nPlease verify your API key at aistudio.google.com.");
+            throw new InvalidOperationException($"Gemini API Error for '{cleanModel}':\n{primaryError}\n\nPlease verify your API key at aistudio.google.com.");
         }
 
         private FamilySchema ParseGeminiResponse(string rawJson)
@@ -211,7 +197,6 @@ HYBRID PARAMETER EXTRACTION RULES:
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
 
-            // Extract real-time token usage metrics for token economy monitoring
             if (root.TryGetProperty("usageMetadata", out var usage))
             {
                 int pt = usage.TryGetProperty("promptTokenCount", out var pProp) ? pProp.GetInt32() : 0;
@@ -233,7 +218,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                 {
                     string textContent = parts[0].GetProperty("text").GetString() ?? "{}";
                     
-                    // Sanitize potential markdown wrappers just in case
                     textContent = textContent.Trim();
                     if (textContent.StartsWith("```json"))
                     {
@@ -249,7 +233,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                     }
                     textContent = textContent.Trim();
 
-                    // Extract pure JSON object bounded by outermost braces
                     int firstBrace = textContent.IndexOf('{');
                     int lastBrace = textContent.LastIndexOf('}');
                     if (firstBrace >= 0 && lastBrace > firstBrace)
@@ -275,29 +258,123 @@ HYBRID PARAMETER EXTRACTION RULES:
 
         /// <summary>
         /// Robust deterministic local rule-based engine.
-        /// Synthesizes architectural components with smart Regex dimensional parsing from prompts even without an API key.
+        /// Synthesizes architectural components from prompts, PDF cut-sheets, and images offline without an API key.
         /// </summary>
-        public FamilySchema GenerateDeterministicFallback(string prompt)
+        public FamilySchema GenerateDeterministicFallback(string prompt, string? imageOrPdfPath = null)
         {
-            string lower = prompt.ToLowerInvariant();
-            var dims = ExtractDimensionsFromPrompt(prompt);
+            string pdfText = "";
+            string imageText = "";
 
-            if (lower.Contains("baseplate") || lower.Contains("joint") || lower.Contains("bracket") || lower.Contains("plate"))
+            if (!string.IsNullOrEmpty(imageOrPdfPath) && File.Exists(imageOrPdfPath))
             {
-                return CreateBaseplateJointSchema(dims.w ?? 300, dims.d ?? 300, dims.thk ?? 25, dims.h ?? 300);
+                string ext = Path.GetExtension(imageOrPdfPath).ToLowerInvariant();
+                if (ext == ".pdf")
+                {
+                    pdfText = ExtractTextFromPdf(imageOrPdfPath!);
+                }
+                else
+                {
+                    imageText = ExtractTextFromImageFilename(imageOrPdfPath!);
+                }
             }
-            else if (lower.Contains("door"))
+
+            string combinedText = $"{prompt} {pdfText} {imageText}".Trim();
+            string lower = combinedText.ToLowerInvariant();
+            var dims = ExtractDimensionsFromPrompt(combinedText);
+
+            // 1. Doors
+            if (lower.Contains("door") || lower.Contains("gate") || lower.Contains("entryway"))
             {
                 return CreateDoorSchema(dims.w ?? 900, dims.h ?? 2100, dims.thk ?? 44);
             }
-            else if (lower.Contains("window"))
+            // 2. Windows & Louvers
+            else if (lower.Contains("window") || lower.Contains("louver") || lower.Contains("glazing") || lower.Contains("casement"))
             {
                 return CreateWindowSchema(dims.w ?? 1200, dims.h ?? 1500, dims.d ?? 100);
             }
+            // 3. Chairs, Armchairs, Sofas & Seating
+            else if (lower.Contains("chair") || lower.Contains("armchair") || lower.Contains("sofa") || lower.Contains("couch") || lower.Contains("stool") || lower.Contains("bench") || lower.Contains("ottoman") || lower.Contains("seating"))
+            {
+                return CreateChairSchema(dims.w ?? 600, dims.d ?? 600, dims.h ?? 850, dims.thk ?? 50);
+            }
+            // 4. Tables, Desks & Workstations
+            else if (lower.Contains("table") || lower.Contains("desk") || lower.Contains("workstation") || lower.Contains("counter") || lower.Contains("credenza"))
+            {
+                return CreateWorkstationSchema(dims.w ?? 1600, dims.d ?? 800, dims.h ?? 750, dims.thk ?? 30);
+            }
+            // 5. Casework, Cabinets & Shelving
+            else if (lower.Contains("cabinet") || lower.Contains("shelf") || lower.Contains("shelving") || lower.Contains("bookcase") || lower.Contains("wardrobe") || lower.Contains("cupboard") || lower.Contains("drawer") || lower.Contains("casework") || lower.Contains("storage") || lower.Contains("locker"))
+            {
+                return CreateCaseworkSchema(dims.w ?? 900, dims.d ?? 450, dims.h ?? 1800, dims.thk ?? 20);
+            }
+            // 6. Structural Connections & Baseplates
+            else if (lower.Contains("baseplate") || lower.Contains("joint") || lower.Contains("bracket") || lower.Contains("plate") || lower.Contains("connection") || lower.Contains("gusset") || lower.Contains("flange"))
+            {
+                return CreateBaseplateJointSchema(dims.w ?? 300, dims.d ?? 300, dims.thk ?? 25, dims.h ?? 300);
+            }
+            // 7. Canopies, Trellises & Facades
+            else if (lower.Contains("canopy") || lower.Contains("trellis") || lower.Contains("pergola") || lower.Contains("sunshade") || lower.Contains("shading") || lower.Contains("awning") || lower.Contains("overhang"))
+            {
+                return CreateCanopySchema(dims.w ?? 2000, dims.d ?? 1200, dims.thk ?? 100, dims.h ?? 400);
+            }
+            // 8. Columns & Posts
+            else if (lower.Contains("column") || lower.Contains("post") || lower.Contains("pillar") || lower.Contains("pier") || lower.Contains("stanchion"))
+            {
+                return CreateColumnSchema(dims.w ?? 400, dims.d ?? 400, dims.h ?? 3000);
+            }
+            // 9. Universal Dynamic Fallback (Handles ANY custom architectural object, FF&E, or prompt)
             else
             {
-                // Default to a parametric Workstation with dynamically extracted or standard dimensions
-                return CreateWorkstationSchema(dims.w ?? 1600, dims.d ?? 800, dims.h ?? 750, dims.thk ?? 30);
+                return CreateDynamicUniversalSchema(combinedText, dims.w ?? 1000, dims.d ?? 600, dims.h ?? 900, dims.thk ?? 25);
+            }
+        }
+
+        private static string ExtractTextFromPdf(string pdfPath)
+        {
+            try
+            {
+                if (!File.Exists(pdfPath)) return "";
+                byte[] bytes = File.ReadAllBytes(pdfPath);
+                string raw = Encoding.ASCII.GetString(bytes);
+
+                var sb = new StringBuilder();
+
+                // Extract parenthesized text streams in PDF: (text) Tj
+                var matches = Regex.Matches(raw, @"\(([^)]+)\)\s*T[jJ]");
+                foreach (Match m in matches)
+                {
+                    if (m.Groups.Count > 1)
+                    {
+                        sb.Append(m.Groups[1].Value).Append(" ");
+                    }
+                }
+
+                // Also match dimension tokens e.g. 1200x600, W=1500, H:2100
+                var dimMatches = Regex.Matches(raw, @"\b\d{2,5}\s*(?:mm|cm|m|in|\""|x|by|\*)\b", RegexOptions.IgnoreCase);
+                foreach (Match dm in dimMatches)
+                {
+                    sb.Append(dm.Value).Append(" ");
+                }
+
+                return sb.ToString();
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static string ExtractTextFromImageFilename(string imagePath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(imagePath)) return "";
+                string name = Path.GetFileNameWithoutExtension(imagePath);
+                return name.Replace('_', ' ').Replace('-', ' ');
+            }
+            catch
+            {
+                return "";
             }
         }
 
@@ -305,8 +382,8 @@ HYBRID PARAMETER EXTRACTION RULES:
         {
             double? w = null, d = null, h = null, thk = null;
 
-            // Pattern: 1800x900x750 or 1800 x 900 x 750
-            var tripleMatch = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Pattern: 1800x900x750 or 1800 x 900 x 750 or 1800*900*750
+            var tripleMatch = Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", RegexOptions.IgnoreCase);
             if (tripleMatch.Success)
             {
                 if (double.TryParse(tripleMatch.Groups[1].Value, out double val1)) w = val1;
@@ -316,7 +393,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             else
             {
                 // Pattern: 900x2100 (Width x Height)
-                var doubleMatch = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var doubleMatch = Regex.Match(prompt, @"(\d{2,5})\s*(?:x|by|\*)\s*(\d{2,5})", RegexOptions.IgnoreCase);
                 if (doubleMatch.Success)
                 {
                     if (double.TryParse(doubleMatch.Groups[1].Value, out double val1)) w = val1;
@@ -325,19 +402,40 @@ HYBRID PARAMETER EXTRACTION RULES:
             }
 
             // Keyword matches
-            var wm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:width|w)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var wm = Regex.Match(prompt, @"(?:width|w|len|length)[:=\s]+(\d{2,5})", RegexOptions.IgnoreCase);
             if (wm.Success && double.TryParse(wm.Groups[1].Value, out double vw)) w = vw;
 
-            var dm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:depth|d)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var dm = Regex.Match(prompt, @"(?:depth|d)[:=\s]+(\d{2,5})", RegexOptions.IgnoreCase);
             if (dm.Success && double.TryParse(dm.Groups[1].Value, out double vd)) d = vd;
 
-            var hm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:height|h)[:=\s]+(\d{2,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var hm = Regex.Match(prompt, @"(?:height|h)[:=\s]+(\d{2,5})", RegexOptions.IgnoreCase);
             if (hm.Success && double.TryParse(hm.Groups[1].Value, out double vh)) h = vh;
 
-            var thkm = System.Text.RegularExpressions.Regex.Match(prompt, @"(?:thickness|thick|thk)[:=\s]+(\d{1,4})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var thkm = Regex.Match(prompt, @"(?:thickness|thick|thk)[:=\s]+(\d{1,4})", RegexOptions.IgnoreCase);
             if (thkm.Success && double.TryParse(thkm.Groups[1].Value, out double vthk)) thk = vthk;
 
             return (w, d, h, thk);
+        }
+
+        private static string CleanPromptToFamilyName(string prompt)
+        {
+            string cleaned = Regex.Replace(prompt, @"\b\d+[\w]*\b", "");
+            cleaned = Regex.Replace(cleaned, @"\b(?:mm|cm|m|width|height|depth|thick|thickness|with|and|the|a|an|parametric|revit|family)\b", "", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"[^\w\s]", "");
+            var words = cleaned.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return "Parametric_Custom_Component";
+
+            var sb = new StringBuilder("Parametric_");
+            int count = 0;
+            foreach (var w in words)
+            {
+                if (w.Length > 1 && count < 3)
+                {
+                    sb.Append(char.ToUpperInvariant(w[0])).Append(w.Substring(1).ToLowerInvariant()).Append("_");
+                    count++;
+                }
+            }
+            return sb.ToString().TrimEnd('_');
         }
 
         private FamilySchema CreateWorkstationSchema(double width = 1600, double depth = 800, double height = 750, double topThk = 30)
@@ -350,7 +448,8 @@ HYBRID PARAMETER EXTRACTION RULES:
             return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Workstation",
-                TemplateName = "Metric Furniture.rft",
+                FamilyCategory = "Furniture",
+                TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
                     new() { Name = "Table_Width", DataType = "Length", DefaultValueMm = width },
@@ -405,10 +504,7 @@ HYBRID PARAMETER EXTRACTION RULES:
                             }
                         },
                         PlacementOffsetMm = new VectorOffsetDef(-legOffsetW, -legOffsetD, 0),
-                        ParameterBindings = new Dictionary<string, string>
-                        {
-                            { "Leg_Height", "Table_Height" }
-                        }
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Table_Height" } }
                     },
                     new()
                     {
@@ -435,11 +531,105 @@ HYBRID PARAMETER EXTRACTION RULES:
             };
         }
 
+        private FamilySchema CreateChairSchema(double width = 600, double depth = 600, double height = 850, double cushionThk = 50)
+        {
+            double halfW = width / 2.0;
+            double halfD = depth / 2.0;
+            double seatZ = 450;
+            double legOffsetW = halfW - 40;
+            double legOffsetD = halfD - 40;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = "Parametric_Chair",
+                FamilyCategory = "Furniture",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Chair_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Chair_Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Total_Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Seat_Height", DataType = "Length", DefaultValueMm = seatZ }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Seat Cushion
+                    new()
+                    {
+                        Name = "Seat_Cushion",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = seatZ - cushionThk, EndZ_mm = seatZ,
+                        WidthParameter = "Chair_Width",
+                        DepthParameter = "Chair_Depth"
+                    },
+                    // Backrest
+                    new()
+                    {
+                        Name = "Backrest_Panel",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = halfD - 40, MaxY_mm = halfD,
+                        StartZ_mm = seatZ, EndZ_mm = height,
+                        WidthParameter = "Chair_Width",
+                        HeightParameter = "Total_Height"
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = "Chair_Leg",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubParameters = new List<MasterParameterDef>
+                        {
+                            new() { Name = "Leg_Height", DataType = "Length", DefaultValueMm = seatZ - cushionThk }
+                        },
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new()
+                            {
+                                Name = "Leg_Cylinder",
+                                ProfileType = "Cylinder",
+                                Radius_mm = 18,
+                                MinX_mm = -18, MaxX_mm = 18,
+                                MinY_mm = -18, MaxY_mm = 18,
+                                StartZ_mm = 0, EndZ_mm = seatZ - cushionThk
+                            }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(-legOffsetW, -legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Seat_Height" } }
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Chair_Leg",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(legOffsetW, -legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Seat_Height" } }
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Chair_Leg",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(-legOffsetW, legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Seat_Height" } }
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Chair_Leg",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(legOffsetW, legOffsetD, 0),
+                        ParameterBindings = new Dictionary<string, string> { { "Leg_Height", "Seat_Height" } }
+                    }
+                }
+            };
+        }
+
         private FamilySchema CreateDoorSchema(double width = 900, double height = 2100, double thickness = 44)
         {
             return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Door_Leaf",
+                FamilyCategory = "Doors",
                 TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
@@ -496,6 +686,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Window_Casement",
+                FamilyCategory = "Windows",
                 TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
@@ -516,9 +707,100 @@ HYBRID PARAMETER EXTRACTION RULES:
                         WidthParameter = "Window_Width",
                         DepthParameter = "Frame_Depth",
                         HeightParameter = "Window_Height"
+                    },
+                    new()
+                    {
+                        Name = "Glass_Infill",
+                        MinX_mm = -halfW + 45, MaxX_mm = halfW - 45,
+                        MinY_mm = -6, MaxY_mm = 6,
+                        StartZ_mm = 45, EndZ_mm = height - 45
                     }
                 },
-                NestedFamilies = new List<NestedFamilyDef>()
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = "Window_Lock_Handle",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new() { Name = "Lock_Knob", ProfileType = "Cylinder", Radius_mm = 12, StartZ_mm = 0, EndZ_mm = 25 }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(halfW - 55, 0, height / 2.0)
+                    }
+                }
+            };
+        }
+
+        private FamilySchema CreateCaseworkSchema(double width = 900, double depth = 450, double height = 1800, double thk = 20)
+        {
+            double halfW = width / 2.0;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = "Parametric_Cabinet_Shelving",
+                FamilyCategory = "Casework",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Cabinet_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Cabinet_Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Cabinet_Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Panel_Thickness", DataType = "Length", DefaultValueMm = thk }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Plinth / Kickplate
+                    new()
+                    {
+                        Name = "Base_Plinth",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = 0, MaxY_mm = depth - 30,
+                        StartZ_mm = 0, EndZ_mm = 100
+                    },
+                    // Outer Carcass (Hollow)
+                    new()
+                    {
+                        Name = "Carcass_Body",
+                        ProfileType = "HollowBox",
+                        WallThickness_mm = thk,
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = 0, MaxY_mm = depth,
+                        StartZ_mm = 100, EndZ_mm = height,
+                        WidthParameter = "Cabinet_Width",
+                        DepthParameter = "Cabinet_Depth",
+                        HeightParameter = "Cabinet_Height"
+                    },
+                    // Mid Shelf 1
+                    new()
+                    {
+                        Name = "Interior_Shelf_1",
+                        MinX_mm = -halfW + thk, MaxX_mm = halfW - thk,
+                        MinY_mm = thk, MaxY_mm = depth - 10,
+                        StartZ_mm = height * 0.4, EndZ_mm = height * 0.4 + thk
+                    },
+                    // Mid Shelf 2
+                    new()
+                    {
+                        Name = "Interior_Shelf_2",
+                        MinX_mm = -halfW + thk, MaxX_mm = halfW - thk,
+                        MinY_mm = thk, MaxY_mm = depth - 10,
+                        StartZ_mm = height * 0.7, EndZ_mm = height * 0.7 + thk
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = "Cabinet_Pull_Handle",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new() { Name = "Handle_Bar", ProfileType = "Cylinder", Radius_mm = 8, StartZ_mm = 0, EndZ_mm = 120 }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(0, depth + 10, height * 0.5)
+                    }
+                }
             };
         }
 
@@ -532,6 +814,7 @@ HYBRID PARAMETER EXTRACTION RULES:
             return new FamilySchema
             {
                 MasterFamilyName = "Parametric_Column_Baseplate",
+                FamilyCategory = "Generic Models",
                 TemplateName = "Metric Generic Model.rft",
                 MasterParameters = new List<MasterParameterDef>
                 {
@@ -541,7 +824,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
-                    // Baseplate solid
                     new()
                     {
                         Name = "Steel_Baseplate",
@@ -549,7 +831,6 @@ HYBRID PARAMETER EXTRACTION RULES:
                         MinY_mm = -halfD, MaxY_mm = halfD,
                         StartZ_mm = 0, EndZ_mm = plateThk
                     },
-                    // Column hollow stub
                     new()
                     {
                         Name = "Column_Hollow_Stub",
@@ -589,6 +870,192 @@ HYBRID PARAMETER EXTRACTION RULES:
                         NestedFamilyName = "Anchor_Bolt",
                         TemplateName = "Metric Generic Model.rft",
                         PlacementOffsetMm = new VectorOffsetDef(boltOffsetW, boltOffsetD, 0)
+                    }
+                }
+            };
+        }
+
+        private FamilySchema CreateCanopySchema(double width = 2000, double depth = 1200, double thk = 100, double height = 400)
+        {
+            double halfW = width / 2.0;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = "Parametric_Canopy_Awning",
+                FamilyCategory = "Generic Models",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Canopy_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Canopy_Projection", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Frame_Thickness", DataType = "Length", DefaultValueMm = thk }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Perimeter frame
+                    new()
+                    {
+                        Name = "Canopy_Frame",
+                        ProfileType = "HollowBox",
+                        WallThickness_mm = 40,
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = 0, MaxY_mm = depth,
+                        StartZ_mm = height - thk, EndZ_mm = height,
+                        WidthParameter = "Canopy_Width",
+                        DepthParameter = "Canopy_Projection"
+                    },
+                    // Glass Roof
+                    new()
+                    {
+                        Name = "Canopy_Glazing",
+                        MinX_mm = -halfW + 35, MaxX_mm = halfW - 35,
+                        MinY_mm = 35, MaxY_mm = depth - 35,
+                        StartZ_mm = height - 12, EndZ_mm = height
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = "Canopy_Strut_Arm",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new() { Name = "Strut_Bar", ProfileType = "Cylinder", Radius_mm = 15, StartZ_mm = 0, EndZ_mm = height }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(-halfW + 100, depth * 0.7, 0)
+                    },
+                    new()
+                    {
+                        NestedFamilyName = "Canopy_Strut_Arm",
+                        TemplateName = "Metric Generic Model.rft",
+                        PlacementOffsetMm = new VectorOffsetDef(halfW - 100, depth * 0.7, 0)
+                    }
+                }
+            };
+        }
+
+        private FamilySchema CreateColumnSchema(double width = 400, double depth = 400, double height = 3000)
+        {
+            double halfW = width / 2.0;
+            double halfD = depth / 2.0;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = "Parametric_Architectural_Column",
+                FamilyCategory = "Columns",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Column_Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Column_Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Column_Height", DataType = "Length", DefaultValueMm = height }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Plinth Footing
+                    new()
+                    {
+                        Name = "Column_Footing",
+                        MinX_mm = -halfW - 50, MaxX_mm = halfW + 50,
+                        MinY_mm = -halfD - 50, MaxY_mm = halfD + 50,
+                        StartZ_mm = 0, EndZ_mm = 150
+                    },
+                    // Main Shaft
+                    new()
+                    {
+                        Name = "Column_Shaft",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = 150, EndZ_mm = height - 150,
+                        WidthParameter = "Column_Width",
+                        DepthParameter = "Column_Depth",
+                        HeightParameter = "Column_Height"
+                    },
+                    // Capital at top
+                    new()
+                    {
+                        Name = "Column_Capital",
+                        MinX_mm = -halfW - 50, MaxX_mm = halfW + 50,
+                        MinY_mm = -halfD - 50, MaxY_mm = halfD + 50,
+                        StartZ_mm = height - 150, EndZ_mm = height
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>()
+            };
+        }
+
+        private FamilySchema CreateDynamicUniversalSchema(string prompt, double width, double depth, double height, double thk)
+        {
+            string familyName = CleanPromptToFamilyName(prompt);
+            double halfW = width / 2.0;
+            double halfD = depth / 2.0;
+
+            return new FamilySchema
+            {
+                MasterFamilyName = familyName,
+                FamilyCategory = "Generic Models",
+                TemplateName = "Metric Generic Model.rft",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Thickness", DataType = "Length", DefaultValueMm = thk }
+                },
+                ReferencePlanes = new List<ReferencePlaneDef>
+                {
+                    new() { Name = "Left_Plane", Orientation = "X", OffsetFromOriginMm = -halfW, DrivenByParameter = "Width" },
+                    new() { Name = "Right_Plane", Orientation = "X", OffsetFromOriginMm = halfW, DrivenByParameter = "Width" },
+                    new() { Name = "Front_Plane", Orientation = "Y", OffsetFromOriginMm = -halfD, DrivenByParameter = "Depth" },
+                    new() { Name = "Back_Plane", Orientation = "Y", OffsetFromOriginMm = halfD, DrivenByParameter = "Depth" },
+                    new() { Name = "Top_Plane", Orientation = "Z", OffsetFromOriginMm = height, DrivenByParameter = "Height" }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // Plinth / Base
+                    new()
+                    {
+                        Name = "Component_Base",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = 0, EndZ_mm = thk,
+                        WidthParameter = "Width",
+                        DepthParameter = "Depth",
+                        HeightParameter = "Thickness"
+                    },
+                    // Main Body
+                    new()
+                    {
+                        Name = "Component_Body",
+                        MinX_mm = -halfW + 20, MaxX_mm = halfW - 20,
+                        MinY_mm = -halfD + 20, MaxY_mm = halfD - 20,
+                        StartZ_mm = thk, EndZ_mm = height - thk,
+                        HeightParameter = "Height"
+                    },
+                    // Top Cap
+                    new()
+                    {
+                        Name = "Component_Top",
+                        MinX_mm = -halfW, MaxX_mm = halfW,
+                        MinY_mm = -halfD, MaxY_mm = halfD,
+                        StartZ_mm = height - thk, EndZ_mm = height,
+                        WidthParameter = "Width",
+                        DepthParameter = "Depth",
+                        HeightParameter = "Thickness"
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>
+                {
+                    new()
+                    {
+                        NestedFamilyName = $"{familyName}_Hardware",
+                        TemplateName = "Metric Generic Model.rft",
+                        SubExtrusions = new List<ExtrusionDef>
+                        {
+                            new() { Name = "Hardware_Fitting", ProfileType = "Cylinder", Radius_mm = 15, StartZ_mm = 0, EndZ_mm = 30 }
+                        },
+                        PlacementOffsetMm = new VectorOffsetDef(halfW - 50, -halfD + 50, height)
                     }
                 }
             };

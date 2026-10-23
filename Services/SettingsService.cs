@@ -37,6 +37,10 @@ namespace ParametricFamilyForge.Services
                         {
                             settings.TemplateDirectory = RevitEngine.TemplateResolver.GetBestDefaultTemplateDirectory();
                         }
+                        if (string.IsNullOrWhiteSpace(settings.ModelEngine) || settings.ModelEngine.Contains("3.8") || settings.ModelEngine.Contains("3.6"))
+                        {
+                            settings.ModelEngine = "gemini-2.5-flash";
+                        }
                         return settings;
                     }
                 }

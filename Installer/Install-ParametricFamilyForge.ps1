@@ -182,7 +182,7 @@ $configFile = Join-Path $configDir "config.json"
 if (-not (Test-Path $configFile)) {
     $cfgObject = [ordered]@{
         api_key = ""
-        model_engine = "gemini-3.8"
+        model_engine = "gemini-2.5-flash"
         temperature = 0.2
         template_directory = $globalTplDir
         output_directory = (Join-Path $env:USERPROFILE 'Desktop\RevitGeneratedFamilies')

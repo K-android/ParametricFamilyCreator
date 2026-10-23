@@ -19,7 +19,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        public const string DefaultGeminiModel = "gemini-2.5-flash";
+        public const string DefaultGeminiModel = "gemini-3.8-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -123,13 +123,19 @@ HYBRID PARAMETER EXTRACTION RULES:
 
             // Clean up and normalize model name
             string cleanModel = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName.Trim();
-            if (cleanModel.Contains("3.8") || cleanModel.Contains("3.6"))
+            if (cleanModel.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase))
             {
-                cleanModel = "gemini-2.5-flash";
+                cleanModel = "gemini-3.8-flash";
+            }
+            else if (cleanModel.Contains("3.6"))
+            {
+                cleanModel = "gemini-3.8-flash";
             }
 
-            // Candidate models: prioritize the user's selected model
+            // Candidate models: prioritize the user's selected model, followed by reliable fallbacks
             var candidateModels = new List<string> { cleanModel };
+            if (!cleanModel.Equals("gemini-3.8-flash", StringComparison.OrdinalIgnoreCase))
+                candidateModels.Add("gemini-3.8-flash");
             if (!cleanModel.Equals("gemini-2.5-flash", StringComparison.OrdinalIgnoreCase))
                 candidateModels.Add("gemini-2.5-flash");
             if (!cleanModel.Equals("gemini-2.0-flash", StringComparison.OrdinalIgnoreCase))

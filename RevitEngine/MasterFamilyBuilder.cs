@@ -52,14 +52,26 @@ namespace ParametricFamilyForge.RevitEngine
             // Intelligently resolve template across versions, languages, and Metric/Imperial names
             string templatePath = TemplateResolver.Resolve(uiApp, schema.TemplateName, templateDirectoryPath);
 
-            Document masterDoc;
-            if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+            Document? masterDoc = null;
+            try
             {
-                masterDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                {
+                    masterDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                }
+                else
+                {
+                    masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
+                }
             }
-            else
+            catch
             {
-                masterDoc = uiApp.Application.NewFamilyDocument(templatePath);
+                // Fallback attempt to open file directly
+                try
+                {
+                    masterDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                }
+                catch { }
             }
 
             if (masterDoc == null)
@@ -78,6 +90,19 @@ namespace ParametricFamilyForge.RevitEngine
             {
                 trans.Start();
 
+                // If opening a seed family (.rfa), delete any pre-existing model geometry so the family starts fresh
+                try
+                {
+                    var existingGeomIds = new FilteredElementCollector(masterDoc)
+                        .OfClass(typeof(GenericForm))
+                        .ToElementIds();
+                    if (existingGeomIds.Count > 0)
+                    {
+                        masterDoc.Delete(existingGeomIds);
+                    }
+                }
+                catch { }
+
                 // Dynamically re-categorize family to intended BIM category
                 try
                 {
@@ -91,6 +116,30 @@ namespace ParametricFamilyForge.RevitEngine
                 catch { }
 
                 FamilyManager famMgr = masterDoc.FamilyManager;
+
+                // CRITICAL FIX: Ensure at least one FamilyType exists so symbols/types are registered and schedulable
+                FamilyType? defaultType = famMgr.CurrentType;
+                if (defaultType == null)
+                {
+                    try
+                    {
+                        if (famMgr.Types.Size == 0)
+                        {
+                            string typeName = !string.IsNullOrWhiteSpace(schema.MasterFamilyName) ? schema.MasterFamilyName : "Standard";
+                            defaultType = famMgr.NewType(typeName);
+                        }
+                        else
+                        {
+                            defaultType = famMgr.Types.Cast<FamilyType>().FirstOrDefault();
+                            if (defaultType != null) famMgr.CurrentType = defaultType;
+                        }
+                    }
+                    catch { }
+                }
+                if (famMgr.CurrentType == null)
+                {
+                    try { famMgr.NewType("Standard"); } catch { }
+                }
 
                 // 1. Create Master Parameters
                 var paramDict = new Dictionary<string, FamilyParameter>(StringComparer.OrdinalIgnoreCase);
@@ -401,9 +450,23 @@ namespace ParametricFamilyForge.RevitEngine
             if (loadedNestedFamily == null) return;
 
             var symbolIds = loadedNestedFamily.GetFamilySymbolIds();
-            if (symbolIds.Count == 0) return;
+            FamilySymbol? symbol = null;
 
-            FamilySymbol symbol = (FamilySymbol)masterDoc.GetElement(symbolIds.First());
+            if (symbolIds != null && symbolIds.Count > 0)
+            {
+                symbol = masterDoc.GetElement(symbolIds.First()) as FamilySymbol;
+            }
+
+            if (symbol == null)
+            {
+                // Fallback query for symbol belonging to this family
+                symbol = new FilteredElementCollector(masterDoc)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => s.Family != null && s.Family.Id == loadedNestedFamily.Id);
+            }
+
+            if (symbol == null) return;
 
             // Activate symbol if not active
             if (!symbol.IsActive)

@@ -25,19 +25,30 @@ namespace ParametricFamilyForge.RevitEngine
 
             string templatePath = TemplateResolver.Resolve(uiApp, nestedDef.TemplateName, templateDirectoryPath);
 
-            Document familyDoc;
-            if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+            Document? familyDoc = null;
+            try
             {
-                familyDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                if (templatePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                {
+                    familyDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                }
+                else
+                {
+                    familyDoc = uiApp.Application.NewFamilyDocument(templatePath);
+                }
             }
-            else
+            catch
             {
-                familyDoc = uiApp.Application.NewFamilyDocument(templatePath);
+                try
+                {
+                    familyDoc = uiApp.Application.OpenDocumentFile(templatePath);
+                }
+                catch { }
             }
 
             if (familyDoc == null)
             {
-                throw new InvalidOperationException($"Failed to create new family document using template: {templatePath}");
+                throw new InvalidOperationException($"Failed to create or open family document using template: {templatePath}");
             }
 
             string tempRfaPath = Path.Combine(Path.GetTempPath(), $"{nestedDef.NestedFamilyName}_{Guid.NewGuid():N}.rfa");
@@ -46,7 +57,44 @@ namespace ParametricFamilyForge.RevitEngine
             {
                 trans.Start();
 
+                // If opening a seed family (.rfa), delete any pre-existing model geometry so the family starts fresh
+                try
+                {
+                    var existingGeomIds = new FilteredElementCollector(familyDoc)
+                        .OfClass(typeof(GenericForm))
+                        .ToElementIds();
+                    if (existingGeomIds.Count > 0)
+                    {
+                        familyDoc.Delete(existingGeomIds);
+                    }
+                }
+                catch { }
+
                 FamilyManager famMgr = familyDoc.FamilyManager;
+
+                // CRITICAL FIX: Ensure nested family has a valid FamilyType so GetFamilySymbolIds() returns a valid symbol
+                FamilyType? nestedType = famMgr.CurrentType;
+                if (nestedType == null)
+                {
+                    try
+                    {
+                        if (famMgr.Types.Size == 0)
+                        {
+                            string typeName = !string.IsNullOrWhiteSpace(nestedDef.NestedFamilyName) ? nestedDef.NestedFamilyName : "Standard";
+                            nestedType = famMgr.NewType(typeName);
+                        }
+                        else
+                        {
+                            nestedType = famMgr.Types.Cast<FamilyType>().FirstOrDefault();
+                            if (nestedType != null) famMgr.CurrentType = nestedType;
+                        }
+                    }
+                    catch { }
+                }
+                if (famMgr.CurrentType == null)
+                {
+                    try { famMgr.NewType("Standard"); } catch { }
+                }
 
                 // Configure Shared Family status if requested (for independent BIM scheduling)
                 if (nestedDef.IsShared && familyDoc.OwnerFamily != null)

@@ -304,7 +304,7 @@ namespace ParametricFamilyForge.Setup
                     string tplDirEscaped = globalTplDir.Replace("\\", "\\\\");
                     string defaultConfig = @"{
   ""api_key"": """",
-  ""model_engine"": ""gemini-3.8-flash"",
+  ""model_engine"": ""gemini-2.5-flash"",
   ""temperature"": 0.2,
   ""template_directory"": """ + tplDirEscaped + @""",
   ""output_directory"": """ + desktop + @"\\\\RevitGeneratedFamilies"",

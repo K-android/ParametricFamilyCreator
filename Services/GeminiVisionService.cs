@@ -20,7 +20,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        public const string DefaultGeminiModel = "gemini-3.8-flash";
+        public const string DefaultGeminiModel = "gemini-2.5-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -98,104 +98,264 @@ HYBRID PARAMETER EXTRACTION RULES:
                 text = $"Generate Revit Parametric Family specification for: {userPrompt}"
             });
 
-            // JSON Schema declaration for Gemini Structured Outputs
-            var requestBody = new
-            {
-                system_instruction = new
-                {
-                    parts = new[]
-                    {
-                        new { text = FamilyForgeSystemInstruction }
-                    }
-                },
-                contents = new[]
-                {
-                    new { parts = parts.ToArray() }
-                },
-                generationConfig = new
-                {
-                    temperature = ClampDouble(temperature, 0.0, 1.0),
-                    response_mime_type = "application/json",
-                    max_output_tokens = 2500
-                }
-            };
-
-            string jsonPayload = JsonSerializer.Serialize(requestBody);
-
             // Clean up and normalize model name
-            string cleanModel = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName.Trim();
-            if (cleanModel.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase) || cleanModel.Contains("3.6"))
-            {
-                cleanModel = "gemini-3.8-flash";
-            }
+            string cleanModel = NormalizeModelName(modelName);
 
-            // Candidate models: prioritize user's selection, then high-capacity fast fallbacks
-            var candidateModels = new List<string> { cleanModel };
-            if (!candidateModels.Contains("gemini-2.5-flash", StringComparer.OrdinalIgnoreCase))
-                candidateModels.Add("gemini-2.5-flash");
-            if (!candidateModels.Contains("gemini-2.0-flash", StringComparer.OrdinalIgnoreCase))
-                candidateModels.Add("gemini-2.0-flash");
-            if (!candidateModels.Contains("gemini-1.5-flash", StringComparer.OrdinalIgnoreCase))
-                candidateModels.Add("gemini-1.5-flash");
+            // 1. Ask Google which models THIS API key can actually use (free call, no tokens consumed).
+            //    This avoids blind guessing of retired models (e.g. gemini-1.5-flash now returns 404).
+            List<string> availableModels = await GetAvailableModelsAsync(apiKey, cancellationToken);
 
-            string primaryError = "";
+            var errors = new List<string>();
+            var candidateModels = BuildCandidateList(cleanModel, availableModels, errors);
 
             foreach (var targetModel in candidateModels)
             {
+                string jsonPayload = BuildRequestPayload(parts, temperature, targetModel);
                 try
                 {
                     string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                     using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                    // 35-second responsive per-model timeout
-                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+                    // Generous per-model timeout: multimodal PDF analysis on thinking models can take 30-60s.
+                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
                     HttpResponseMessage response = await _httpClient.PostAsync(endpoint, content, linkedCts.Token);
+                    string body = await response.Content.ReadAsStringAsync();
 
                     if (response.IsSuccessStatusCode)
                     {
-                        string rawJsonResponse = await response.Content.ReadAsStringAsync();
-                        return ParseGeminiResponse(rawJsonResponse);
+                        try
+                        {
+                            var schema = ParseGeminiResponse(body);
+                            LastUsedModel = targetModel;
+                            return schema;
+                        }
+                        catch (Exception parseEx)
+                        {
+                            errors.Add($"[{targetModel}] responded but output was unusable: {parseEx.Message}");
+                            continue;
+                        }
                     }
 
-                    string errorMsg = await response.Content.ReadAsStringAsync();
+                    string apiMessage = ExtractApiErrorMessage(body);
 
-                    // If API key authentication error, DO NOT attempt other models. Throw immediately so the user knows.
-                    if ((response.StatusCode == System.Net.HttpStatusCode.BadRequest && 
-                         (errorMsg.Contains("API_KEY") || errorMsg.Contains("key not valid") || errorMsg.Contains("INVALID_ARGUMENT"))) ||
-                        response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                        response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    // Invalid API key: no other model will work either -> stop immediately.
+                    if (IsAuthError(response.StatusCode, body))
                     {
-                        throw new InvalidOperationException(
-                            $"Gemini API Authentication Failed for model '{targetModel}':\n{errorMsg}\n\n" +
-                            "Please check your API key in the Settings panel (get a free key at https://aistudio.google.com)."
-                        );
+                        throw new GeminiAuthException(
+                            $"Gemini API key rejected ({(int)response.StatusCode}): {apiMessage}\n\n" +
+                            "Check your API key in Settings (get a free key at https://aistudio.google.com/apikey).");
                     }
 
-                    // For 503 (Model Overloaded / High Demand), 429 (Rate Limit / Quota), 404 (Not Found), or 500:
-                    // Record status and immediately failover to next candidate model!
-                    primaryError = $"[Model: {targetModel} - Status: {(int)response.StatusCode} {response.ReasonPhrase}]: {errorMsg}";
-                    continue;
+                    errors.Add($"[{targetModel}] HTTP {(int)response.StatusCode} {DescribeStatus((int)response.StatusCode)}: {apiMessage}");
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    primaryError = $"[Model: {targetModel} timed out after 35s]";
-                    continue;
-                }
-                catch (InvalidOperationException)
+                catch (GeminiAuthException)
                 {
                     throw;
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    primaryError = $"[Model: {targetModel}]: {ex.Message}";
-                    continue;
+                    errors.Add($"[{targetModel}] timed out after 120s (model overloaded or very large PDF).");
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    errors.Add($"[{targetModel}] network error: {httpEx.Message}");
                 }
             }
 
-            throw new InvalidOperationException($"Gemini API Error for '{cleanModel}':\n{primaryError}\n\nFalling back to procedural AEC engine.");
+            // Report EVERY model's failure reason, not just the last one.
+            throw new InvalidOperationException(
+                "All Gemini models failed:\n  • " + string.Join("\n  • ", errors));
         }
+
+        /// <summary>Model that produced the last successful AI schema.</summary>
+        public string? LastUsedModel { get; private set; }
+
+        private sealed class GeminiAuthException : InvalidOperationException
+        {
+            public GeminiAuthException(string message) : base(message) { }
+        }
+
+        private static string NormalizeModelName(string? modelName)
+        {
+            string m = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName!.Trim();
+            // ComboBox display text may include a description, e.g. "gemini-2.5-flash (Recommended)"
+            int paren = m.IndexOf(' ');
+            if (paren > 0) m = m.Substring(0, paren);
+            if (m.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) m = m.Substring(7);
+            if (m.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase)) m = "gemini-3.8-flash";
+            return m;
+        }
+
+        private static readonly Dictionary<string, List<string>> _modelCache = new Dictionary<string, List<string>>();
+
+        /// <summary>
+        /// Calls the ListModels endpoint to discover which generateContent-capable models the key can access.
+        /// Returns an empty list if discovery fails for network reasons (caller then uses static fallbacks).
+        /// </summary>
+        private async Task<List<string>> GetAvailableModelsAsync(string apiKey, CancellationToken ct)
+        {
+            lock (_modelCache)
+            {
+                if (_modelCache.TryGetValue(apiKey, out var cached)) return cached;
+            }
+
+            var result = new List<string>();
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+                var resp = await _httpClient.GetAsync(
+                    $"https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key={apiKey}", linked.Token);
+                string body = await resp.Content.ReadAsStringAsync();
+
+                if (IsAuthError(resp.StatusCode, body))
+                {
+                    throw new GeminiAuthException(
+                        $"Gemini API key rejected ({(int)resp.StatusCode}): {ExtractApiErrorMessage(body)}\n\n" +
+                        "Check your API key in Settings (get a free key at https://aistudio.google.com/apikey).");
+                }
+                if (!resp.IsSuccessStatusCode) return result;
+
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("models", out var models))
+                {
+                    foreach (var m in models.EnumerateArray())
+                    {
+                        string name = m.TryGetProperty("name", out var n) ? (n.GetString() ?? "") : "";
+                        if (name.StartsWith("models/")) name = name.Substring(7);
+                        bool canGenerate = false;
+                        if (m.TryGetProperty("supportedGenerationMethods", out var methods))
+                        {
+                            foreach (var meth in methods.EnumerateArray())
+                            {
+                                if (meth.GetString() == "generateContent") { canGenerate = true; break; }
+                            }
+                        }
+                        if (canGenerate && name.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
+                        {
+                            result.Add(name);
+                        }
+                    }
+                }
+
+                lock (_modelCache) { _modelCache[apiKey] = result; }
+            }
+            catch (GeminiAuthException) { throw; }
+            catch { /* discovery is best-effort */ }
+            return result;
+        }
+
+        private static readonly string[] PreferredFallbacks =
+        {
+            "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.5-pro"
+        };
+
+        private static bool IsUnsuitableModel(string name)
+        {
+            string n = name.ToLowerInvariant();
+            return n.Contains("tts") || n.Contains("image") || n.Contains("live") || n.Contains("audio") ||
+                   n.Contains("embedding") || n.Contains("robotics") || n.Contains("computer-use") || n.Contains("gemma");
+        }
+
+        /// <summary>
+        /// User's model first (if the key can access it), then at most 2 verified fallbacks.
+        /// Capped to avoid wasting quota on long retry chains.
+        /// </summary>
+        private static List<string> BuildCandidateList(string userModel, List<string> available, List<string> errors)
+        {
+            var list = new List<string>();
+            bool haveDiscovery = available.Count > 0;
+
+            if (!haveDiscovery || available.Contains(userModel, StringComparer.OrdinalIgnoreCase))
+            {
+                list.Add(userModel);
+            }
+            else
+            {
+                errors.Add($"[{userModel}] is not available for your API key (skipped). Available flash models: " +
+                           string.Join(", ", available.Where(a => a.Contains("flash") && !IsUnsuitableModel(a)).Take(6)));
+            }
+
+            IEnumerable<string> pool = haveDiscovery
+                ? PreferredFallbacks.Where(p => available.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    .Concat(available.Where(a => a.Contains("flash") && !IsUnsuitableModel(a)).OrderByDescending(a => a))
+                : new[] { "gemini-2.5-flash", "gemini-2.0-flash" };
+
+            foreach (var m in pool)
+            {
+                if (list.Count >= 3) break;
+                if (!list.Contains(m, StringComparer.OrdinalIgnoreCase)) list.Add(m);
+            }
+            return list;
+        }
+
+        private static string BuildRequestPayload(List<object> parts, double temperature, string model)
+        {
+            object generationConfig;
+            // Gemini 2.5 Flash "thinks" by default; thinking tokens count against max_output_tokens and
+            // previously truncated the JSON. Disable thinking for flash (cheaper + faster); give room otherwise.
+            if (model.Contains("2.5-flash"))
+            {
+                generationConfig = new
+                {
+                    temperature = ClampDouble(temperature, 0.0, 1.0),
+                    responseMimeType = "application/json",
+                    maxOutputTokens = 8192,
+                    thinkingConfig = new { thinkingBudget = 0 }
+                };
+            }
+            else
+            {
+                generationConfig = new
+                {
+                    temperature = ClampDouble(temperature, 0.0, 1.0),
+                    responseMimeType = "application/json",
+                    maxOutputTokens = 16384
+                };
+            }
+
+            var requestBody = new
+            {
+                systemInstruction = new { parts = new[] { new { text = FamilyForgeSystemInstruction } } },
+                contents = new[] { new { role = "user", parts = parts.ToArray() } },
+                generationConfig
+            };
+            return JsonSerializer.Serialize(requestBody);
+        }
+
+        private static bool IsAuthError(System.Net.HttpStatusCode code, string body)
+        {
+            if (code == System.Net.HttpStatusCode.Unauthorized || code == System.Net.HttpStatusCode.Forbidden) return true;
+            return code == System.Net.HttpStatusCode.BadRequest &&
+                   (body.Contains("API_KEY_INVALID") || body.Contains("API key not valid") || body.Contains("API key expired"));
+        }
+
+        private static string ExtractApiErrorMessage(string body)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("error", out var err) && err.TryGetProperty("message", out var msg))
+                {
+                    string s = msg.GetString() ?? "";
+                    return s.Length > 220 ? s.Substring(0, 220) + "…" : s;
+                }
+            }
+            catch { }
+            return body.Length > 220 ? body.Substring(0, 220) + "…" : body;
+        }
+
+        private static string DescribeStatus(int code) => code switch
+        {
+            404 => "(model not found / retired)",
+            429 => "(quota or rate limit exceeded)",
+            500 => "(Google internal error)",
+            503 => "(model overloaded / high demand)",
+            504 => "(Google gateway timeout)",
+            _ => ""
+        };
 
         private FamilySchema ParseGeminiResponse(string rawJson)
         {
@@ -217,11 +377,23 @@ HYBRID PARAMETER EXTRACTION RULES:
             if (root.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
             {
                 var firstCandidate = candidates[0];
+                string finishReason = firstCandidate.TryGetProperty("finishReason", out var fr) ? (fr.GetString() ?? "") : "";
+                if (finishReason == "MAX_TOKENS")
+                    throw new InvalidOperationException("output was truncated (MAX_TOKENS) - JSON incomplete");
+                if (finishReason == "SAFETY" || finishReason == "RECITATION" || finishReason == "PROHIBITED_CONTENT")
+                    throw new InvalidOperationException($"response blocked by Google ({finishReason})");
                 if (firstCandidate.TryGetProperty("content", out var content) &&
                     content.TryGetProperty("parts", out var parts) &&
                     parts.GetArrayLength() > 0)
                 {
-                    string textContent = parts[0].GetProperty("text").GetString() ?? "{}";
+                    // Skip "thought" parts emitted by thinking models; use the first real text part.
+                    string? found = null;
+                    foreach (var p in parts.EnumerateArray())
+                    {
+                        bool isThought = p.TryGetProperty("thought", out var th) && th.ValueKind == JsonValueKind.True;
+                        if (!isThought && p.TryGetProperty("text", out var tx)) { found = tx.GetString(); break; }
+                    }
+                    string textContent = found ?? "{}";
                     
                     textContent = textContent.Trim();
                     if (textContent.StartsWith("```json"))
@@ -267,114 +439,478 @@ HYBRID PARAMETER EXTRACTION RULES:
         /// </summary>
         public FamilySchema GenerateDeterministicFallback(string prompt, string? imageOrPdfPath = null)
         {
-            string pdfText = "";
-            string imageText = "";
+            prompt ??= "";
+            string docText = "";
+            var report = new StringBuilder();
 
             if (!string.IsNullOrEmpty(imageOrPdfPath) && File.Exists(imageOrPdfPath))
             {
                 string ext = Path.GetExtension(imageOrPdfPath).ToLowerInvariant();
                 if (ext == ".pdf")
                 {
-                    pdfText = ExtractTextFromPdf(imageOrPdfPath!);
+                    docText = ExtractTextFromPdf(imageOrPdfPath!);
+                    if (docText.Trim().Length < 20)
+                    {
+                        report.AppendLine("⚠ PDF contains no extractable text (scanned image, outlined CAD text, or custom font encoding). " +
+                                          "Offline mode can't read it; use AI Synthesis or type key dimensions in the prompt.");
+                    }
+                    else
+                    {
+                        report.AppendLine($"PDF text extracted: {docText.Length} chars.");
+                    }
                 }
                 else
                 {
-                    imageText = ExtractTextFromImageFilename(imageOrPdfPath!);
+                    docText = ExtractTextFromImageFilename(imageOrPdfPath!);
+                    report.AppendLine("Image attached: offline mode can only read its filename (pixels need AI Synthesis).");
                 }
             }
 
-            string combinedText = $"{prompt} {pdfText} {imageText}".Trim();
-            string lower = combinedText.ToLowerInvariant();
+            // Category: prompt wins; only consult the document if the prompt doesn't name a type.
+            string category = DetectCategory(prompt) ?? DetectCategory(docText) ?? "generic";
+            report.AppendLine($"Detected type: {category}");
 
-            // 1. Doors & Entryways
-            if (lower.Contains("door") || lower.Contains("gate") || lower.Contains("entryway"))
+            var d = CategoryDefaults[category];
+            var promptDims = ParseDimensions(prompt, category);
+            var docDims = ParseDimensions(docText, category);
+
+            double w = Pick("Width", promptDims.W, docDims.W, d.W, d.MinW, d.MaxW, report);
+            double dep = Pick("Depth", promptDims.D, docDims.D, d.D, d.MinD, d.MaxD, report);
+            double h = Pick("Height", promptDims.H, docDims.H, d.H, d.MinH, d.MaxH, report);
+            double t = Pick("Thickness", promptDims.T, docDims.T, d.T, 2, Math.Max(d.T * 6, 200), report);
+
+            LastExtractionReport = report.ToString().TrimEnd();
+
+            string nameSource = !string.IsNullOrWhiteSpace(prompt) ? prompt : docText;
+            switch (category)
             {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "door", 900, 44, 2100, 44);
-                return CreateDoorSchema(s.w, s.h, s.thk);
-            }
-            // 2. Windows & Louvers
-            else if (lower.Contains("window") || lower.Contains("louver") || lower.Contains("glazing") || lower.Contains("casement"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "window", 1200, 100, 1500, 50);
-                return CreateWindowSchema(s.w, s.h, s.d);
-            }
-            // 3. Chairs, Armchairs, Sofas & Seating
-            else if (lower.Contains("chair") || lower.Contains("armchair") || lower.Contains("sofa") || lower.Contains("couch") || lower.Contains("stool") || lower.Contains("bench") || lower.Contains("ottoman") || lower.Contains("seating"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "chair", 600, 600, 850, 50);
-                return CreateChairSchema(s.w, s.d, s.h, s.thk);
-            }
-            // 4. Tables, Desks & Workstations
-            else if (lower.Contains("table") || lower.Contains("desk") || lower.Contains("workstation") || lower.Contains("counter") || lower.Contains("credenza"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "table", 1600, 800, 750, 30);
-                return CreateWorkstationSchema(s.w, s.d, s.h, s.thk);
-            }
-            // 5. Casework, Cabinets & Shelving
-            else if (lower.Contains("cabinet") || lower.Contains("shelf") || lower.Contains("shelving") || lower.Contains("bookcase") || lower.Contains("wardrobe") || lower.Contains("cupboard") || lower.Contains("drawer") || lower.Contains("casework") || lower.Contains("storage") || lower.Contains("locker"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "cabinet", 900, 450, 1800, 20);
-                return CreateCaseworkSchema(s.w, s.d, s.h, s.thk);
-            }
-            // 6. Structural Connections & Baseplates
-            else if (lower.Contains("baseplate") || lower.Contains("joint") || lower.Contains("bracket") || lower.Contains("plate") || lower.Contains("connection") || lower.Contains("gusset") || lower.Contains("flange"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "baseplate", 300, 300, 300, 25);
-                return CreateBaseplateJointSchema(s.w, s.d, s.thk, s.h);
-            }
-            // 7. Canopies, Trellises & Facades
-            else if (lower.Contains("canopy") || lower.Contains("trellis") || lower.Contains("pergola") || lower.Contains("sunshade") || lower.Contains("shading") || lower.Contains("awning") || lower.Contains("overhang"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "canopy", 2000, 1200, 400, 100);
-                return CreateCanopySchema(s.w, s.d, s.thk, s.h);
-            }
-            // 8. Columns & Posts
-            else if (lower.Contains("column") || lower.Contains("post") || lower.Contains("pillar") || lower.Contains("pier") || lower.Contains("stanchion"))
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "column", 400, 400, 3000, 50);
-                return CreateColumnSchema(s.w, s.d, s.h);
-            }
-            // 9. Universal Dynamic Fallback (Handles ANY custom architectural object, FF&E, or prompt)
-            else
-            {
-                var s = ExtractDimensionsWithScaleCheck(combinedText, "generic", 1000, 600, 900, 25);
-                return CreateDynamicUniversalSchema(combinedText, s.w, s.d, s.h, s.thk);
+                case "door": return CreateDoorSchema(w, h, t);
+                case "window": return CreateWindowSchema(w, h, dep);
+                case "chair": return CreateChairSchema(w, dep, h, t);
+                case "table": return CreateWorkstationSchema(w, dep, h, t);
+                case "casework": return CreateCaseworkSchema(w, dep, h, t);
+                case "baseplate": return CreateBaseplateJointSchema(w, dep, t, h);
+                case "canopy": return CreateCanopySchema(w, dep, t, h);
+                case "column": return CreateColumnSchema(w, dep, h);
+                default: return CreateDynamicUniversalSchema(nameSource, w, dep, h, t);
             }
         }
 
+        /// <summary>Human-readable log of what the offline engine extracted and why.</summary>
+        public string? LastExtractionReport { get; private set; }
+
+        private sealed class DimDefaults
+        {
+            public double W, D, H, T, MinW, MaxW, MinD, MaxD, MinH, MaxH;
+            public DimDefaults(double w, double d, double h, double t, double minW, double maxW, double minD, double maxD, double minH, double maxH)
+            { W = w; D = d; H = h; T = t; MinW = minW; MaxW = maxW; MinD = minD; MaxD = maxD; MinH = minH; MaxH = maxH; }
+        }
+
+        // Typical size + plausible architectural range (mm) for each category. Values outside range are rejected as mis-parses.
+        private static readonly Dictionary<string, DimDefaults> CategoryDefaults = new Dictionary<string, DimDefaults>
+        {
+            ["door"]      = new DimDefaults(900, 44, 2100, 44,     500, 3600,   25, 300,  1800, 4000),
+            ["window"]    = new DimDefaults(1200, 100, 1500, 50,   250, 6000,   40, 400,   250, 4000),
+            ["chair"]     = new DimDefaults(600, 600, 850, 50,     350, 3000,  350, 1200,  400, 1400),
+            ["table"]     = new DimDefaults(1600, 800, 750, 30,    400, 6000,  300, 2500,  300, 1300),
+            ["casework"]  = new DimDefaults(900, 450, 1800, 20,    200, 4000,  150, 1000,  150, 3000),
+            ["baseplate"] = new DimDefaults(300, 300, 300, 25,      80, 1500,   80, 1500,   50, 2000),
+            ["canopy"]    = new DimDefaults(2000, 1200, 400, 100,  500, 15000, 300, 6000,   50, 3000),
+            ["column"]    = new DimDefaults(400, 400, 3000, 50,     75, 2000,   75, 2000,  500, 15000),
+            ["generic"]   = new DimDefaults(1000, 600, 900, 25,     10, 20000,  10, 20000,  10, 20000),
+        };
+
+        private static readonly (string cat, string[] words)[] CategoryKeywords =
+        {
+            ("door", new[] { "door", "gate", "entryway", "doorset", "door leaf" }),
+            ("window", new[] { "window", "louver", "louvre", "glazing", "casement", "skylight", "fenestration" }),
+            ("chair", new[] { "chair", "armchair", "sofa", "couch", "stool", "bench", "ottoman", "seating", "lounge" }),
+            ("table", new[] { "table", "desk", "workstation", "counter", "worktop" }),
+            ("casework", new[] { "cabinet", "shelf", "shelving", "bookcase", "wardrobe", "cupboard", "drawer", "casework", "storage", "locker", "credenza", "vanity" }),
+            ("baseplate", new[] { "baseplate", "base plate", "bracket", "gusset", "flange", "anchor bolt", "end plate" }),
+            ("canopy", new[] { "canopy", "trellis", "pergola", "sunshade", "brise", "awning", "overhang" }),
+            ("column", new[] { "column", "pillar", "pier", "stanchion", "bollard" }),
+        };
+
+        /// <summary>Picks the category with the most keyword hits (whole words), or null if none.</summary>
+        private static string? DetectCategory(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            string lower = text.ToLowerInvariant();
+            string? best = null;
+            int bestHits = 0;
+            foreach (var (cat, words) in CategoryKeywords)
+            {
+                int hits = 0;
+                foreach (var w in words)
+                {
+                    hits += Regex.Matches(lower, @"\b" + Regex.Escape(w) + @"s?\b").Count;
+                }
+                if (hits > bestHits) { bestHits = hits; best = cat; }
+            }
+            return best;
+        }
+
+        private static double Pick(string label, double? fromPrompt, double? fromDoc, double fallback, double min, double max, StringBuilder report)
+        {
+            if (fromPrompt.HasValue)
+            {
+                if (fromPrompt.Value >= min && fromPrompt.Value <= max)
+                {
+                    report.AppendLine($"  {label} = {fromPrompt.Value:0.#} mm (from prompt)");
+                    return fromPrompt.Value;
+                }
+                report.AppendLine($"  ⚠ {label} {fromPrompt.Value:0.#} mm from prompt is outside plausible range {min:0}-{max:0} mm; ignored.");
+            }
+            if (fromDoc.HasValue)
+            {
+                if (fromDoc.Value >= min && fromDoc.Value <= max)
+                {
+                    report.AppendLine($"  {label} = {fromDoc.Value:0.#} mm (from attached sheet)");
+                    return fromDoc.Value;
+                }
+                report.AppendLine($"  ⚠ {label} {fromDoc.Value:0.#} mm from sheet is outside plausible range {min:0}-{max:0} mm; ignored.");
+            }
+            report.AppendLine($"  {label} = {fallback:0.#} mm (standard default)");
+            return fallback;
+        }
+
+        private struct ParsedDims { public double? W, D, H, T; }
+
+        private const string UnitRx = @"(mm|cm|m|in|inch|inches|""|ft|feet|')";
+
+        /// <summary>
+        /// Parses W/D/H/T (in mm) from free text. Order of precedence:
+        /// labeled values ("Width: 36 in", "H=2100") override generic "A x B x C" strings.
+        /// </summary>
+        private static ParsedDims ParseDimensions(string rawText, string category)
+        {
+            var r = new ParsedDims();
+            if (string.IsNullOrWhiteSpace(rawText)) return r;
+
+            string text = NormalizeImperial(rawText);
+            string? docUnit = DominantUnit(text);
+            var defs = CategoryDefaults[category];
+
+            double? Conv(string num, string unit, double typical)
+            {
+                if (!double.TryParse(num, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) || v <= 0)
+                    return null;
+                if (!string.IsNullOrEmpty(unit)) return ConvertUnitToMm(v, unit);
+                if (docUnit != null) return ConvertUnitToMm(v, docUnit);
+                return InferUnitless(v, typical);
+            }
+
+            // A) "A x B x C" / "A x B" sequences, honouring an explicit order label like "(W x D x H)" or "HxWxD".
+            string seqNum = @"(\d+(?:\.\d+)?)\s*" + UnitRx + "?";
+            var triple = Regex.Match(text, seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
+            if (triple.Success)
+            {
+                string order = DetectOrder(text, 3) ?? "WDH";
+                string lastUnit = triple.Groups[6].Value;
+                AssignByOrder(ref r, order[0], Conv(triple.Groups[1].Value, Fill(triple.Groups[2].Value, lastUnit), Typical(order[0], defs)));
+                AssignByOrder(ref r, order[1], Conv(triple.Groups[3].Value, Fill(triple.Groups[4].Value, lastUnit), Typical(order[1], defs)));
+                AssignByOrder(ref r, order[2], Conv(triple.Groups[5].Value, lastUnit, Typical(order[2], defs)));
+            }
+            else
+            {
+                var dub = Regex.Match(text, seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
+                if (dub.Success)
+                {
+                    bool vertical = category == "door" || category == "window" || category == "casework";
+                    string order = DetectOrder(text, 2) ?? (vertical ? "WH" : "WD");
+                    string lastUnit = dub.Groups[4].Value;
+                    AssignByOrder(ref r, order[0], Conv(dub.Groups[1].Value, Fill(dub.Groups[2].Value, lastUnit), Typical(order[0], defs)));
+                    AssignByOrder(ref r, order[1], Conv(dub.Groups[3].Value, lastUnit, Typical(order[1], defs)));
+                }
+            }
+
+            // B) Labeled values override sequences. Full words allow plain whitespace; single letters require ':' or '='.
+            void Labeled(string wordRx, string letterRx, char slot)
+            {
+                var m = Regex.Match(text, @"\b(?:overall\s+|nominal\s+|total\s+)?(?:" + wordRx + @")\b\s*(?:\(\w+\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*" + UnitRx + "?", RegexOptions.IgnoreCase);
+                if (!m.Success && letterRx.Length > 0)
+                    m = Regex.Match(text, @"\b(?:" + letterRx + @")\s*[:=]\s*(\d+(?:\.\d+)?)\s*" + UnitRx + "?", RegexOptions.IgnoreCase);
+                if (!m.Success && slot != 'T')  // "1200 mm W" / "2100(H)"
+                    m = Regex.Match(text, @"(\d+(?:\.\d+)?)\s*" + UnitRx + @"?\s*\(?\s*(?:" + (letterRx.Length > 0 ? letterRx : wordRx) + @")\s*\)?(?![a-z])", RegexOptions.IgnoreCase);
+                if (!m.Success)  // "1800 wide" / "2.1m high" / "25mm thick"
+                {
+                    string adj = slot switch { 'W' => "wide|long", 'D' => "deep", 'H' => "high|tall", _ => "thick" };
+                    m = Regex.Match(text, @"(\d+(?:\.\d+)?)\s*" + UnitRx + @"?\s*(?:" + adj + @")\b", RegexOptions.IgnoreCase);
+                }
+                if (m.Success)
+                {
+                    var val = Conv(m.Groups[1].Value, m.Groups[2].Value, Typical(slot, defs));
+                    if (val.HasValue) AssignByOrder(ref r, slot, val);
+                }
+            }
+            Labeled("width|length|span", "w|l", 'W');
+            Labeled("depth|projection|leaf thickness|frame depth", "d", 'D');
+            Labeled("height|clear height|ht", "h", 'H');
+            Labeled("thickness|thick|thk", "t", 'T');
+
+            return r;
+        }
+
+        private static string Fill(string unit, string fallbackUnit) => string.IsNullOrEmpty(unit) ? fallbackUnit : unit;
+
+        private static double Typical(char slot, DimDefaults d) => slot switch { 'W' => d.W, 'D' => d.D, 'H' => d.H, _ => d.T };
+
+        private static void AssignByOrder(ref ParsedDims r, char slot, double? val)
+        {
+            if (!val.HasValue) return;
+            switch (slot)
+            {
+                case 'W': r.W = val; break;
+                case 'D': r.D = val; break;
+                case 'H': r.H = val; break;
+                case 'T': r.T = val; break;
+            }
+        }
+
+        /// <summary>Finds an explicit dimension order label such as "W x D x H", "(HxWxD)", "L x W x H".</summary>
+        private static string? DetectOrder(string text, int count)
+        {
+            string l = @"\b([WDHL])\s*(?:x|×|\*)\s*([WDHL])";
+            if (count == 3) l += @"\s*(?:x|×|\*)\s*([WDHL])\b";
+            else l += @"\b";
+            var m = Regex.Match(text, l, RegexOptions.IgnoreCase);
+            if (!m.Success) return null;
+            var sb = new StringBuilder();
+            for (int i = 1; i <= count; i++)
+            {
+                char c = char.ToUpperInvariant(m.Groups[i].Value[0]);
+                sb.Append(c == 'L' ? 'W' : c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Converts architectural imperial notation (3'-6", 36 1/2", 7') into explicit "NNN.Nmm" tokens.</summary>
+        private static string NormalizeImperial(string text)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string Mm(double v) => v.ToString("0.#", inv) + "mm";
+            double Frac(Group whole, Group num, Group den)
+            {
+                double v = whole.Success && whole.Value.Length > 0 ? double.Parse(whole.Value, inv) : 0;
+                if (num.Success && den.Success && num.Value.Length > 0 && double.Parse(den.Value, inv) != 0)
+                    v += double.Parse(num.Value, inv) / double.Parse(den.Value, inv);
+                return v;
+            }
+
+            // Unicode primes → ASCII
+            text = text.Replace('′', '\'').Replace('″', '"').Replace('’', '\'').Replace('”', '"');
+
+            // 3'-6 1/2"  /  3' 6"  /  3'-0"
+            text = Regex.Replace(text, @"(\d+)\s*'\s*-?\s*(\d+)?(?:\s+(\d+)/(\d+))?\s*""", m =>
+                Mm(double.Parse(m.Groups[1].Value, inv) * 304.8 + Frac(m.Groups[2], m.Groups[3], m.Groups[4]) * 25.4));
+            // 36 1/2"
+            text = Regex.Replace(text, @"(\d+)\s+(\d+)/(\d+)\s*(?:""|in\b|inch)", m =>
+                Mm(Frac(m.Groups[1], m.Groups[2], m.Groups[3]) * 25.4));
+            // 7'  (feet alone, not followed by inches)
+            text = Regex.Replace(text, @"(\d+(?:\.\d+)?)\s*'(?!\s*-?\s*\d)", m =>
+                Mm(double.Parse(m.Groups[1].Value, inv) * 304.8));
+            return text;
+        }
+
+        /// <summary>Most frequent explicit unit in a document; used for unitless numbers in the same sheet.</summary>
+        private static string? DominantUnit(string text)
+        {
+            int mm = Regex.Matches(text, @"\d\s*mm\b", RegexOptions.IgnoreCase).Count;
+            int cm = Regex.Matches(text, @"\d\s*cm\b", RegexOptions.IgnoreCase).Count;
+            int inch = Regex.Matches(text, @"\d\s*(?:""|in\b|inch)", RegexOptions.IgnoreCase).Count;
+            int max = Math.Max(mm, Math.Max(cm, inch));
+            if (max == 0) return null;
+            if (max == mm) return "mm";
+            if (max == inch) return "in";
+            return "cm";
+        }
+
+        private static double ConvertUnitToMm(double val, string unit)
+        {
+            string u = unit.Trim().ToLowerInvariant();
+            if (u == "'" || u == "ft" || u == "feet") return val * 304.8;
+            if (u == "\"" || u == "in" || u == "inch" || u == "inches") return val * 25.4;
+            if (u == "cm") return val * 10.0;
+            if (u == "m") return val * 1000.0;
+            return val; // mm
+        }
+
+        /// <summary>
+        /// For numbers with no unit anywhere: choose the unit (mm, cm, m, in, ft) whose result is closest
+        /// (on a log scale) to the typical size for that dimension. "36" for a door width → inches (914 mm),
+        /// "0.9" → metres, "900" → mm, "210" for door height → cm. Slight bias toward mm.
+        /// </summary>
+        private static double InferUnitless(double v, double typical)
+        {
+            var options = new (double factor, double bias)[] { (1, 0.0), (10, 0.25), (1000, 0.15), (25.4, 0.1), (304.8, 0.2) };
+            double best = v, bestScore = double.MaxValue;
+            foreach (var (f, bias) in options)
+            {
+                double mm = v * f;
+                double score = Math.Abs(Math.Log(mm / typical)) + bias;
+                if (score < bestScore) { bestScore = score; best = mm; }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Extracts text from a PDF without external libraries: inflates FlateDecode content streams
+        /// and decodes text-showing operators (Tj, TJ, ', ").
+        /// Limitations: scanned PDFs, outlined CAD text and custom CID font encodings yield little/no text.
+        /// </summary>
         private static string ExtractTextFromPdf(string pdfPath)
         {
             try
             {
-                if (!File.Exists(pdfPath)) return "";
                 byte[] bytes = File.ReadAllBytes(pdfPath);
-                string raw = Encoding.ASCII.GetString(bytes);
-
+                var latin1 = Encoding.GetEncoding(28591);
+                string raw = latin1.GetString(bytes);
                 var sb = new StringBuilder();
 
-                // Extract parenthesized text streams in PDF: (text) Tj
-                var matches = Regex.Matches(raw, @"\(([^)]+)\)\s*T[jJ]");
-                foreach (Match m in matches)
+                int pos = 0;
+                while (true)
                 {
-                    if (m.Groups.Count > 1)
+                    int s = raw.IndexOf("stream", pos, StringComparison.Ordinal);
+                    if (s < 0) break;
+                    if (s >= 3 && raw.Substring(s - 3, 3) == "end") { pos = s + 6; continue; }
+
+                    int dataStart = s + 6;
+                    if (dataStart < raw.Length && raw[dataStart] == '\r') dataStart++;
+                    if (dataStart < raw.Length && raw[dataStart] == '\n') dataStart++;
+                    int e = raw.IndexOf("endstream", dataStart, StringComparison.Ordinal);
+                    if (e < 0) break;
+
+                    int dictStart = raw.LastIndexOf("<<", s, Math.Min(s, 2000), StringComparison.Ordinal);
+                    string dict = dictStart >= 0 ? raw.Substring(dictStart, s - dictStart) : "";
+                    pos = e + 9;
+
+                    if (dict.Contains("/Image") || dict.Contains("/FontFile") || dict.Contains("/XRef") || dict.Contains("/Metadata"))
+                        continue;
+
+                    int len = e - dataStart;
+                    if (len <= 0) continue;
+                    string content;
+                    if (dict.Contains("/FlateDecode"))
                     {
-                        sb.Append(m.Groups[1].Value).Append(" ");
+                        byte[]? inflated = Inflate(bytes, dataStart, len);
+                        if (inflated == null) continue;
+                        content = latin1.GetString(inflated);
                     }
+                    else if (dict.Contains("/Filter"))
+                    {
+                        continue; // other filters (DCT, LZW, ASCII85) not supported
+                    }
+                    else
+                    {
+                        content = raw.Substring(dataStart, len);
+                    }
+
+                    if (content.Contains("BT")) ExtractTextOperators(content, sb);
                 }
 
-                // Also match dimension tokens e.g. 1200x600, W=1500, H:2100
-                var dimMatches = Regex.Matches(raw, @"\b\d{1,5}(?:\.\d+)?\s*(?:mm|cm|m|in|\""|'|ft|x|by|\*)\b", RegexOptions.IgnoreCase);
-                foreach (Match dm in dimMatches)
-                {
-                    sb.Append(dm.Value).Append(" ");
-                }
-
-                return sb.ToString();
+                return Regex.Replace(sb.ToString(), @"[ \t]+", " ");
             }
             catch
             {
                 return "";
             }
+        }
+
+        private static byte[]? Inflate(byte[] src, int offset, int length)
+        {
+            // zlib wrapper: skip 2-byte header, DeflateStream ignores trailing adler32
+            for (int skip = 2; skip >= 0; skip -= 2)
+            {
+                try
+                {
+                    using var input = new MemoryStream(src, offset + skip, length - skip);
+                    using var deflate = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress);
+                    using var output = new MemoryStream();
+                    deflate.CopyTo(output);
+                    if (output.Length > 0) return output.ToArray();
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static readonly Regex PdfTokenRx = new Regex(
+            @"\((?:\\.|[^\\)])*\)|<[0-9A-Fa-f\s]*>|-?\d*\.?\d+|[A-Za-z*'""]+|\[|\]",
+            RegexOptions.Compiled);
+
+        private static void ExtractTextOperators(string content, StringBuilder sb)
+        {
+            foreach (Match block in Regex.Matches(content, @"\bBT\b(.*?)\bET\b", RegexOptions.Singleline))
+            {
+                bool inArray = false;
+                foreach (Match tok in PdfTokenRx.Matches(block.Groups[1].Value))
+                {
+                    string t = tok.Value;
+                    if (t[0] == '(') sb.Append(UnescapePdfString(t.Substring(1, t.Length - 2)));
+                    else if (t[0] == '<') sb.Append(DecodeHexString(t.Substring(1, t.Length - 2)));
+                    else if (t == "[") inArray = true;
+                    else if (t == "]") inArray = false;
+                    else if (inArray && (char.IsDigit(t[t.Length - 1])))
+                    {
+                        if (double.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double kern) && kern < -180)
+                            sb.Append(' ');
+                    }
+                    else if (t == "Td" || t == "TD" || t == "T*" || t == "Tm" || t == "'" || t == "\"") sb.Append('\n');
+                    else if (t == "Tj" || t == "TJ") sb.Append(' ');
+                }
+                sb.Append('\n');
+            }
+        }
+
+        private static string UnescapePdfString(string s)
+        {
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c != '\\' || i + 1 >= s.Length) { sb.Append(c); continue; }
+                char n = s[++i];
+                switch (n)
+                {
+                    case 'n': sb.Append('\n'); break;
+                    case 'r': sb.Append('\r'); break;
+                    case 't': sb.Append('\t'); break;
+                    case 'b': case 'f': break;
+                    case '(': case ')': case '\\': sb.Append(n); break;
+                    default:
+                        if (n >= '0' && n <= '7')
+                        {
+                            int val = n - '0', k = 0;
+                            while (k < 2 && i + 1 < s.Length && s[i + 1] >= '0' && s[i + 1] <= '7') { val = val * 8 + (s[++i] - '0'); k++; }
+                            sb.Append((char)val);
+                        }
+                        else if (n != '\r' && n != '\n')
+                        {
+                            sb.Append(n); // PDF spec: unknown escape -> backslash ignored, char kept
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        private static string DecodeHexString(string hex)
+        {
+            hex = Regex.Replace(hex, @"\s", "");
+            if (hex.Length % 2 == 1) hex += "0";
+            var bytes = new byte[hex.Length / 2];
+            for (int i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+
+            // 2-byte with zero high bytes → UTF-16BE-like; otherwise single-byte if printable
+            if (bytes.Length >= 2 && bytes.Length % 2 == 0)
+            {
+                bool utf16 = true;
+                for (int i = 0; i < bytes.Length; i += 2) if (bytes[i] != 0) { utf16 = false; break; }
+                if (utf16) return Encoding.BigEndianUnicode.GetString(bytes);
+            }
+            foreach (var b in bytes) if (b < 32 || b > 126) return ""; // CID-encoded glyphs: not decodable without font CMap
+            return Encoding.ASCII.GetString(bytes);
         }
 
         private static string ExtractTextFromImageFilename(string imagePath)
@@ -391,182 +927,10 @@ HYBRID PARAMETER EXTRACTION RULES:
             }
         }
 
-        /// <summary>
-        /// Highly intelligent architectural scale parser and verifier.
-        /// Extracts dimensions across imperial (feet/inches), metric (m/cm/mm), and unitless notations,
-        /// then applies contextual sanity checking to prevent microscopic or gigantic geometry in Revit.
-        /// </summary>
-        private static (double w, double d, double h, double thk) ExtractDimensionsWithScaleCheck(
-            string text,
-            string category,
-            double defaultW,
-            double defaultD,
-            double defaultH,
-            double defaultThk)
-        {
-            double? rawW = null, rawD = null, rawH = null, rawThk = null;
-            string? unitW = null, unitD = null, unitH = null, unitThk = null;
-
-            // 1. Compound feet & inches: e.g. 3'6" or 3ft 6in
-            var compoundFtIn = Regex.Matches(text, @"(\d+)\s*(?:'|ft|feet)\s*(\d+(?:\.\d+)?)\s*(?:""|in|inch|inches)?", RegexOptions.IgnoreCase);
-            if (compoundFtIn.Count >= 2)
-            {
-                rawW = (double.Parse(compoundFtIn[0].Groups[1].Value) * 304.8) + (double.Parse(compoundFtIn[0].Groups[2].Value) * 25.4);
-                rawH = (double.Parse(compoundFtIn[1].Groups[1].Value) * 304.8) + (double.Parse(compoundFtIn[1].Groups[2].Value) * 25.4);
-                unitW = "mm";
-                unitH = "mm";
-            }
-            else if (compoundFtIn.Count == 1)
-            {
-                rawW = (double.Parse(compoundFtIn[0].Groups[1].Value) * 304.8) + (double.Parse(compoundFtIn[0].Groups[2].Value) * 25.4);
-                unitW = "mm";
-            }
-
-            // 2. Triple Dimension pattern (W x D x H)
-            // e.g. 1800x900x750 or 60" x 30" x 30" or 1.8m x 0.9m x 0.75m
-            if (rawW == null)
-            {
-                var triple = Regex.Match(text, 
-                    @"(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?\s*(?:x|by|\*)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?\s*(?:x|by|\*)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", 
-                    RegexOptions.IgnoreCase);
-                if (triple.Success)
-                {
-                    if (double.TryParse(triple.Groups[1].Value, out double v1)) rawW = v1;
-                    unitW = triple.Groups[2].Value;
-
-                    if (double.TryParse(triple.Groups[3].Value, out double v2)) rawD = v2;
-                    unitD = triple.Groups[4].Value;
-
-                    if (double.TryParse(triple.Groups[5].Value, out double v3)) rawH = v3;
-                    unitH = triple.Groups[6].Value;
-
-                    if (string.IsNullOrEmpty(unitW) && !string.IsNullOrEmpty(unitH)) unitW = unitH;
-                    if (string.IsNullOrEmpty(unitD) && !string.IsNullOrEmpty(unitH)) unitD = unitH;
-                }
-            }
-
-            // 3. Double Dimension pattern (W x H or W x D)
-            // e.g. 36" x 84" or 900x2100 or 3' x 7' or 0.9m x 2.1m
-            if (rawW == null)
-            {
-                var dub = Regex.Match(text, 
-                    @"(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?\s*(?:x|by|\*)\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", 
-                    RegexOptions.IgnoreCase);
-                if (dub.Success)
-                {
-                    if (double.TryParse(dub.Groups[1].Value, out double v1)) rawW = v1;
-                    unitW = dub.Groups[2].Value;
-
-                    if (double.TryParse(dub.Groups[3].Value, out double v2))
-                    {
-                        if (category.Contains("door") || category.Contains("window") || category.Contains("column"))
-                        {
-                            rawH = v2;
-                            unitH = dub.Groups[4].Value;
-                        }
-                        else
-                        {
-                            rawD = v2;
-                            unitD = dub.Groups[4].Value;
-                        }
-                    }
-
-                    if (string.IsNullOrEmpty(unitW) && !string.IsNullOrEmpty(unitD)) unitW = unitD;
-                    if (string.IsNullOrEmpty(unitW) && !string.IsNullOrEmpty(unitH)) unitW = unitH;
-                }
-            }
-
-            // 4. Keyword matches (Width, Depth, Height, Thickness)
-            var wm = Regex.Match(text, @"(?:width|w|len|length)[:=\s]+(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", RegexOptions.IgnoreCase);
-            if (wm.Success && double.TryParse(wm.Groups[1].Value, out double vw)) { rawW = vw; if (!string.IsNullOrEmpty(wm.Groups[2].Value)) unitW = wm.Groups[2].Value; }
-
-            var dm = Regex.Match(text, @"(?:depth|d)[:=\s]+(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", RegexOptions.IgnoreCase);
-            if (dm.Success && double.TryParse(dm.Groups[1].Value, out double vd)) { rawD = vd; if (!string.IsNullOrEmpty(dm.Groups[2].Value)) unitD = dm.Groups[2].Value; }
-
-            var hm = Regex.Match(text, @"(?:height|h)[:=\s]+(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", RegexOptions.IgnoreCase);
-            if (hm.Success && double.TryParse(hm.Groups[1].Value, out double vh)) { rawH = vh; if (!string.IsNullOrEmpty(hm.Groups[2].Value)) unitH = hm.Groups[2].Value; }
-
-            var thkm = Regex.Match(text, @"(?:thickness|thick|thk)[:=\s]+(\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|""|'|ft)?", RegexOptions.IgnoreCase);
-            if (thkm.Success && double.TryParse(thkm.Groups[1].Value, out double vthk)) { rawThk = vthk; if (!string.IsNullOrEmpty(thkm.Groups[2].Value)) unitThk = thkm.Groups[2].Value; }
-
-            // 5. Convert explicitly tagged units to Millimeters
-            if (rawW.HasValue && !string.IsNullOrEmpty(unitW)) rawW = ConvertUnitToMm(rawW.Value, unitW!);
-            if (rawD.HasValue && !string.IsNullOrEmpty(unitD)) rawD = ConvertUnitToMm(rawD.Value, unitD!);
-            if (rawH.HasValue && !string.IsNullOrEmpty(unitH)) rawH = ConvertUnitToMm(rawH.Value, unitH!);
-            if (rawThk.HasValue && !string.IsNullOrEmpty(unitThk)) rawThk = ConvertUnitToMm(rawThk.Value, unitThk!);
-
-            // 6. ARCHITECTURAL SCALE INFERENCE & VERIFICATION (When no units were given)
-            rawW = InferAndNormalizeDimension(rawW, defaultW, category);
-            rawD = InferAndNormalizeDimension(rawD, defaultD, category);
-            rawH = InferAndNormalizeDimension(rawH, defaultH, category);
-            rawThk = InferAndNormalizeDimension(rawThk, defaultThk, category, isThickness: true);
-
-            // 7. Safety Bounds Verification (Prevent microscopic or absurd BIM sizes)
-            double finalW = Math.Max(rawW ?? defaultW, 50.0);
-            double finalD = Math.Max(rawD ?? defaultD, 50.0);
-            double finalH = Math.Max(rawH ?? defaultH, 50.0);
-            double finalThk = Math.Max(rawThk ?? defaultThk, 2.0); // Min 2mm to prevent Revit geometric degeneration
-
-            return (finalW, finalD, finalH, finalThk);
-        }
-
-        private static double ConvertUnitToMm(double val, string unit)
-        {
-            string u = unit.Trim().ToLowerInvariant();
-            if (u.Contains("'") || u.Contains("ft") || u.Contains("feet")) return val * 304.8;
-            if (u.Contains("\"") || u.Contains("in") || u.Contains("inch")) return val * 25.4;
-            if (u == "cm") return val * 10.0;
-            if (u == "m") return val * 1000.0;
-            return val; // mm
-        }
-
-        private static double? InferAndNormalizeDimension(double? val, double fallback, string category, bool isThickness = false)
-        {
-            if (!val.HasValue || val.Value <= 0) return fallback;
-            double v = val.Value;
-
-            if (isThickness)
-            {
-                if (v < 0.5) return v * 1000.0;
-                if (v <= 4.0) return v * 25.4;
-                return v;
-            }
-
-            // Case A: Meter magnitude (0.1 to 10.0 with decimal e.g. 0.9m, 2.1m, 1.5m)
-            if (v < 10.0)
-            {
-                if (Math.Abs(v - Math.Round(v)) > 0.001 || v <= 2.0)
-                {
-                    return v * 1000.0;
-                }
-                // Integer 3 to 9 (e.g. 3' wide door, 7' high door, 8' ceiling)
-                return v * 304.8;
-            }
-
-            // Case B: Imperial Inch magnitude (10 to 120, e.g. 36", 48", 60", 72", 84")
-            // Common in architectural cut-sheets (36x84 door, 60x30 desk)
-            if (v >= 12.0 && v <= 120.0)
-            {
-                return v * 25.4;
-            }
-
-            // Case C: Centimeter magnitude (121 to 350 for door/window e.g. 210cm)
-            if (v >= 121.0 && v <= 350.0 && (category.Contains("door") || category.Contains("window")))
-            {
-                if (v == 210 || v == 200 || v == 240 || v == 90 || v == 80 || v == 70)
-                {
-                    return v * 10.0;
-                }
-            }
-
-            // Case D: Millimeter magnitude (150 to 15000)
-            return Math.Min(v, 15000.0);
-        }
-
         private static string CleanPromptToFamilyName(string prompt)
         {
             string cleaned = Regex.Replace(prompt, @"\b\d+[\w]*\b", "");
-            cleaned = Regex.Replace(cleaned, @"\b(?:mm|cm|m|in|inch|feet|width|height|depth|thick|thickness|with|and|the|a|an|parametric|revit|family)\b", "", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"\b(?:mm|cm|m|in|inch|feet|width|height|depth|thick|thickness|with|and|the|a|an|parametric|revit|family|create|make|generate)\b", "", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, @"[^\w\s]", "");
             var words = cleaned.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             if (words.Length == 0) return "Parametric_Custom_Component";
@@ -583,7 +947,6 @@ HYBRID PARAMETER EXTRACTION RULES:
             }
             return sb.ToString().TrimEnd('_');
         }
-
         private FamilySchema CreateWorkstationSchema(double width = 1600, double depth = 800, double height = 750, double topThk = 30)
         {
             double halfW = width / 2.0;

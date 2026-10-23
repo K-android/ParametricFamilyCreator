@@ -309,6 +309,7 @@ namespace ParametricFamilyForge.UI
                 LogMessage("[AI Notice] No Gemini API key provided. Using offline deterministic AEC rule engine with cut-sheet analysis...");
                 var fallback = _geminiService.GenerateDeterministicFallback(prompt, _selectedImagePath);
                 UpdateJsonPreview(fallback);
+                LogExtractionReport();
                 LogMessage($"Offline schema created: '{fallback.MasterFamilyName}' ({fallback.HostExtrusions.Count} extrusions, {fallback.NestedFamilies.Count} nested components).");
                 return;
             }
@@ -328,19 +329,24 @@ namespace ParametricFamilyForge.UI
                 );
 
                 UpdateJsonPreview(schema);
-                LogMessage($"Successfully synthesized schema for '{schema.MasterFamilyName}'!");
+                LogMessage($"Successfully synthesized schema for '{schema.MasterFamilyName}' using {_geminiService.LastUsedModel ?? model}.");
+                if (!string.IsNullOrEmpty(_geminiService.LastUsedModel) && !_geminiService.LastUsedModel!.Equals(model, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogMessage($"[AI Notice] '{model}' was unavailable, so the fallback model '{_geminiService.LastUsedModel}' was used.");
+                }
 
                 if (!string.IsNullOrEmpty(_geminiService.LastUsageSummary))
                 {
-                    LogMessage($"[Token Economy] {_geminiService.LastUsageSummary} (~$0.0001 per run).");
+                    LogMessage($"[Token Economy] {_geminiService.LastUsageSummary}");
                 }
             }
             catch (Exception ex)
             {
                 LogMessage($"[AI Error] {ex.Message}");
-                MessageBox.Show(this, $"Gemini API request failed:\n{ex.Message}\n\nFalling back to deterministic rule engine.", "Synthesis Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, $"{ex.Message}\n\nThe offline rule engine will be used instead.", "AI Synthesis Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
                 var fallbackSchema = _geminiService.GenerateDeterministicFallback(prompt, _selectedImagePath);
                 UpdateJsonPreview(fallbackSchema);
+                LogExtractionReport();
             }
             finally
             {
@@ -349,16 +355,23 @@ namespace ParametricFamilyForge.UI
             }
         }
 
+        private void LogExtractionReport()
+        {
+            string? report = _geminiService.LastExtractionReport;
+            if (string.IsNullOrEmpty(report)) return;
+            foreach (var line in report!.Split('\n'))
+            {
+                LogMessage("[Offline] " + line.TrimEnd('\r'));
+            }
+        }
+
         private void BtnDeterministic_Click(object sender, RoutedEventArgs e)
         {
             string prompt = TxtPrompt.Text.Trim();
-            if (string.IsNullOrEmpty(prompt) && !string.IsNullOrEmpty(_selectedImagePath))
-            {
-                prompt = Path.GetFileNameWithoutExtension(_selectedImagePath);
-            }
             LogMessage("Generating procedural schema via local deterministic AEC rule engine...");
             var schema = _geminiService.GenerateDeterministicFallback(prompt, _selectedImagePath);
             UpdateJsonPreview(schema);
+            LogExtractionReport();
             LogMessage($"Deterministic schema created: '{schema.MasterFamilyName}' ({schema.HostExtrusions.Count} extrusions, {schema.NestedFamilies.Count} nested components).");
         }
 

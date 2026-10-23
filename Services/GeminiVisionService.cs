@@ -20,7 +20,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        public const string DefaultGeminiModel = "gemini-2.5-flash";
+        public const string DefaultGeminiModel = "gemini-3.8-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -101,22 +101,21 @@ HYBRID PARAMETER EXTRACTION RULES:
             // Clean up and normalize model name
             string cleanModel = NormalizeModelName(modelName);
 
-            // 1. Ask Google which models THIS API key can actually use (free call, no tokens consumed).
-            //    This avoids blind guessing of retired models (e.g. gemini-1.5-flash now returns 404).
+            // 1. Ask Google which Gemini 3 / Gemini 4 models THIS API key can access (free call, no tokens consumed).
             List<string> availableModels = await GetAvailableModelsAsync(apiKey, cancellationToken);
 
             var errors = new List<string>();
-            var candidateModels = BuildCandidateList(cleanModel, availableModels, errors);
+            var candidateModels = BuildCandidateList(cleanModel, availableModels);
 
             foreach (var targetModel in candidateModels)
             {
-                string jsonPayload = BuildRequestPayload(parts, temperature, targetModel);
+                string jsonPayload = BuildRequestPayload(parts, temperature);
                 try
                 {
                     string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                     using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                    // Generous per-model timeout: multimodal PDF analysis on thinking models can take 30-60s.
+                    // Generous per-model timeout: multimodal PDF analysis on reasoning models can take 30-60s.
                     using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
@@ -166,7 +165,7 @@ HYBRID PARAMETER EXTRACTION RULES:
 
             // Report EVERY model's failure reason, not just the last one.
             throw new InvalidOperationException(
-                "All Gemini models failed:\n  • " + string.Join("\n  • ", errors));
+                "All Gemini 3 / Gemini 4 models failed:\n  • " + string.Join("\n  • ", errors));
         }
 
         /// <summary>Model that produced the last successful AI schema.</summary>
@@ -180,11 +179,18 @@ HYBRID PARAMETER EXTRACTION RULES:
         private static string NormalizeModelName(string? modelName)
         {
             string m = string.IsNullOrWhiteSpace(modelName) ? DefaultGeminiModel : modelName!.Trim();
-            // ComboBox display text may include a description, e.g. "gemini-2.5-flash (Recommended)"
+            // ComboBox display text may include a description, e.g. "gemini-3.8-flash (Recommended)"
             int paren = m.IndexOf(' ');
             if (paren > 0) m = m.Substring(0, paren);
             if (m.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) m = m.Substring(7);
-            if (m.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase)) m = "gemini-3.8-flash";
+            if (m.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase) || m.Equals("gemini-3", StringComparison.OrdinalIgnoreCase))
+                m = "gemini-3.8-flash";
+            else if (m.Equals("gemini-3.6", StringComparison.OrdinalIgnoreCase))
+                m = "gemini-3.6-flash";
+            else if (m.Equals("gemini-4", StringComparison.OrdinalIgnoreCase))
+                m = "gemini-4-argon";
+            else if (m.Contains("1.5") || m.Contains("2.0") || m.Contains("2.5"))
+                m = "gemini-3.8-flash";
             return m;
         }
 
@@ -192,7 +198,7 @@ HYBRID PARAMETER EXTRACTION RULES:
 
         /// <summary>
         /// Calls the ListModels endpoint to discover which generateContent-capable models the key can access.
-        /// Returns an empty list if discovery fails for network reasons (caller then uses static fallbacks).
+        /// Returns an empty list if discovery fails for network reasons (caller then uses Gemini 3/4 fallbacks).
         /// </summary>
         private async Task<List<string>> GetAvailableModelsAsync(string apiKey, CancellationToken ct)
         {
@@ -233,7 +239,8 @@ HYBRID PARAMETER EXTRACTION RULES:
                                 if (meth.GetString() == "generateContent") { canGenerate = true; break; }
                             }
                         }
-                        if (canGenerate && name.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
+                        if (canGenerate && (name.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase) ||
+                                            name.StartsWith("gemini-4", StringComparison.OrdinalIgnoreCase)))
                         {
                             result.Add(name);
                         }
@@ -247,74 +254,57 @@ HYBRID PARAMETER EXTRACTION RULES:
             return result;
         }
 
-        private static readonly string[] PreferredFallbacks =
+        private static readonly string[] Gemini3And4Models =
         {
-            "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.5-pro"
+            "gemini-3.8-flash",
+            "gemini-4-argon",
+            "gemini-3.1-flash-lite",
+            "gemini-3-flash-preview",
+            "gemini-3-pro-preview",
+            "gemini-3.6-flash"
         };
 
         private static bool IsUnsuitableModel(string name)
         {
             string n = name.ToLowerInvariant();
             return n.Contains("tts") || n.Contains("image") || n.Contains("live") || n.Contains("audio") ||
-                   n.Contains("embedding") || n.Contains("robotics") || n.Contains("computer-use") || n.Contains("gemma");
+                   n.Contains("embedding") || n.Contains("robotics") || n.Contains("computer-use") || n.Contains("gemma") || n.Contains("cyber");
         }
 
         /// <summary>
-        /// User's model first (if the key can access it), then at most 2 verified fallbacks.
-        /// Capped to avoid wasting quota on long retry chains.
+        /// Always tries the user's selected Gemini 3 / 4 model first, followed by any Gemini 3 / 4 models
+        /// discovered on the account and the canonical Gemini 3 / 4 fallback chain.
         /// </summary>
-        private static List<string> BuildCandidateList(string userModel, List<string> available, List<string> errors)
+        private static List<string> BuildCandidateList(string userModel, List<string> available)
         {
-            var list = new List<string>();
-            bool haveDiscovery = available.Count > 0;
+            var list = new List<string> { userModel };
 
-            if (!haveDiscovery || available.Contains(userModel, StringComparer.OrdinalIgnoreCase))
+            // First add any Gemini 3/4 models confirmed available via ListModels
+            foreach (var m in Gemini3And4Models.Where(p => available.Contains(p, StringComparer.OrdinalIgnoreCase))
+                         .Concat(available.Where(a => !IsUnsuitableModel(a)).OrderByDescending(a => a)))
             {
-                list.Add(userModel);
-            }
-            else
-            {
-                errors.Add($"[{userModel}] is not available for your API key (skipped). Available flash models: " +
-                           string.Join(", ", available.Where(a => a.Contains("flash") && !IsUnsuitableModel(a)).Take(6)));
+                if (!list.Contains(m, StringComparer.OrdinalIgnoreCase))
+                    list.Add(m);
             }
 
-            IEnumerable<string> pool = haveDiscovery
-                ? PreferredFallbacks.Where(p => available.Contains(p, StringComparer.OrdinalIgnoreCase))
-                    .Concat(available.Where(a => a.Contains("flash") && !IsUnsuitableModel(a)).OrderByDescending(a => a))
-                : new[] { "gemini-2.5-flash", "gemini-2.0-flash" };
-
-            foreach (var m in pool)
+            // Ensure standard Gemini 3 & 4 endpoints are in the fallback chain
+            foreach (var m in Gemini3And4Models)
             {
-                if (list.Count >= 3) break;
-                if (!list.Contains(m, StringComparer.OrdinalIgnoreCase)) list.Add(m);
+                if (list.Count >= 5) break;
+                if (!list.Contains(m, StringComparer.OrdinalIgnoreCase))
+                    list.Add(m);
             }
             return list;
         }
 
-        private static string BuildRequestPayload(List<object> parts, double temperature, string model)
+        private static string BuildRequestPayload(List<object> parts, double temperature)
         {
-            object generationConfig;
-            // Gemini 2.5 Flash "thinks" by default; thinking tokens count against max_output_tokens and
-            // previously truncated the JSON. Disable thinking for flash (cheaper + faster); give room otherwise.
-            if (model.Contains("2.5-flash"))
+            var generationConfig = new
             {
-                generationConfig = new
-                {
-                    temperature = ClampDouble(temperature, 0.0, 1.0),
-                    responseMimeType = "application/json",
-                    maxOutputTokens = 8192,
-                    thinkingConfig = new { thinkingBudget = 0 }
-                };
-            }
-            else
-            {
-                generationConfig = new
-                {
-                    temperature = ClampDouble(temperature, 0.0, 1.0),
-                    responseMimeType = "application/json",
-                    maxOutputTokens = 16384
-                };
-            }
+                temperature = ClampDouble(temperature, 0.0, 1.0),
+                responseMimeType = "application/json",
+                maxOutputTokens = 16384
+            };
 
             var requestBody = new
             {

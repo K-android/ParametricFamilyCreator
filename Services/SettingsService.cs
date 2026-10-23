@@ -37,9 +37,22 @@ namespace ParametricFamilyForge.Services
                         {
                             settings.TemplateDirectory = RevitEngine.TemplateResolver.GetBestDefaultTemplateDirectory();
                         }
-                        if (string.IsNullOrWhiteSpace(settings.ModelEngine) || settings.ModelEngine.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase) || settings.ModelEngine.Contains("3.6") || settings.ModelEngine.Contains("1.5"))
+                        if (string.IsNullOrWhiteSpace(settings.ModelEngine) ||
+                            settings.ModelEngine.Contains("1.5") ||
+                            settings.ModelEngine.Contains("2.0") ||
+                            settings.ModelEngine.Contains("2.5") ||
+                            settings.ModelEngine.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase) ||
+                            settings.ModelEngine.Equals("gemini-3", StringComparison.OrdinalIgnoreCase))
                         {
-                            settings.ModelEngine = "gemini-2.5-flash";
+                            settings.ModelEngine = "gemini-3.8-flash";
+                        }
+                        else if (settings.ModelEngine.Equals("gemini-3.6", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.ModelEngine = "gemini-3.6-flash";
+                        }
+                        else if (settings.ModelEngine.Equals("gemini-4", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.ModelEngine = "gemini-4-argon";
                         }
                         return settings;
                     }

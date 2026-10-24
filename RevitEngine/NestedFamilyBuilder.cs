@@ -57,7 +57,7 @@ namespace ParametricFamilyForge.RevitEngine
             {
                 trans.Start();
 
-                // If opening a seed family (.rfa), delete any pre-existing model geometry so the family starts fresh
+                // If opening a seed family (.rfa), delete pre-existing model geometry
                 try
                 {
                     var existingGeomIds = new FilteredElementCollector(familyDoc)
@@ -72,7 +72,7 @@ namespace ParametricFamilyForge.RevitEngine
 
                 FamilyManager famMgr = familyDoc.FamilyManager;
 
-                // CRITICAL FIX: Ensure nested family has a valid FamilyType so GetFamilySymbolIds() returns a valid symbol
+                // Ensure nested family has a valid FamilyType
                 FamilyType? nestedType = famMgr.CurrentType;
                 if (nestedType == null)
                 {
@@ -106,34 +106,59 @@ namespace ParametricFamilyForge.RevitEngine
                     }
                 }
 
-                // 1. Add Sub-Parameters (Modern Revit 2025/2026 ForgeTypeId & SpecTypeId)
-                foreach (var paramDef in nestedDef.SubParameters)
+                // 1. Add Sub-Parameters (Modern Revit 2024 / 2025 / 2026 ForgeTypeId & SpecTypeId)
+                if (nestedDef.SubParameters != null)
                 {
-                    ForgeTypeId specType = SpecTypeId.Length;
-                    if (string.Equals(paramDef.DataType, "YesNo", StringComparison.OrdinalIgnoreCase))
+                    foreach (var paramDef in nestedDef.SubParameters)
                     {
-                        specType = SpecTypeId.Boolean.YesNo;
-                    }
-                    else if (string.Equals(paramDef.DataType, "Material", StringComparison.OrdinalIgnoreCase))
-                    {
-                        specType = SpecTypeId.Reference.Material;
-                    }
+                        try
+                        {
+                            ForgeTypeId specType = MasterFamilyBuilder.ResolveSpecType(paramDef.DataType);
+                            ForgeTypeId groupType = MasterFamilyBuilder.ResolveGroupType(paramDef.GroupType, paramDef.DataType);
 
-                    FamilyParameter famParam = famMgr.AddParameter(
-                        paramDef.Name,
-                        GroupTypeId.Geometry,
-                        specType,
-                        paramDef.IsInstance
-                    );
+                            FamilyParameter famParam = famMgr.AddParameter(
+                                paramDef.Name,
+                                groupType,
+                                specType,
+                                paramDef.IsInstance
+                            );
 
-                    if (specType == SpecTypeId.Length && paramDef.DefaultValueMm != 0)
-                    {
-                        famMgr.Set(famParam, MmToFeet(paramDef.DefaultValueMm));
-                    }
+                            if (specType == SpecTypeId.Length)
+                            {
+                                double mm = paramDef.GetEffectiveNumericValue();
+                                if (mm != 0) famMgr.Set(famParam, MmToFeet(mm));
+                            }
+                            else if (specType == SpecTypeId.Angle)
+                            {
+                                double deg = paramDef.GetEffectiveNumericValue();
+                                if (deg != 0) famMgr.Set(famParam, UnitUtils.ConvertToInternalUnits(deg, UnitTypeId.Degrees));
+                            }
+                            else if (specType == SpecTypeId.Boolean.YesNo)
+                            {
+                                famMgr.Set(famParam, paramDef.GetEffectiveNumericValue() != 0 ? 1 : 0);
+                            }
+                            else if (specType == SpecTypeId.Int.Integer)
+                            {
+                                famMgr.Set(famParam, (int)paramDef.GetEffectiveNumericValue());
+                            }
+                            else if (specType == SpecTypeId.Number)
+                            {
+                                famMgr.Set(famParam, paramDef.GetEffectiveNumericValue());
+                            }
+                            else if (specType == SpecTypeId.String.Text || specType == SpecTypeId.String.Url)
+                            {
+                                if (!string.IsNullOrEmpty(paramDef.DefaultText))
+                                {
+                                    famMgr.Set(famParam, paramDef.DefaultText);
+                                }
+                            }
 
-                    if (!string.IsNullOrEmpty(paramDef.Formula))
-                    {
-                        try { famMgr.SetFormula(famParam, paramDef.Formula); } catch { }
+                            if (!string.IsNullOrEmpty(paramDef.Formula))
+                            {
+                                try { famMgr.SetFormula(famParam, paramDef.Formula); } catch { }
+                            }
+                        }
+                        catch { }
                     }
                 }
 
@@ -150,9 +175,16 @@ namespace ParametricFamilyForge.RevitEngine
                 }
 
                 // 3. Build sub-extrusions
-                foreach (var extrusionDef in nestedDef.SubExtrusions)
+                if (nestedDef.SubExtrusions != null)
                 {
-                    CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef);
+                    foreach (var extrusionDef in nestedDef.SubExtrusions)
+                    {
+                        try
+                        {
+                            CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef);
+                        }
+                        catch { }
+                    }
                 }
 
                 familyDoc.Regenerate();
@@ -195,7 +227,6 @@ namespace ParametricFamilyForge.RevitEngine
 
             if (string.Equals(extDef.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
             {
-                // Circular profile (cylindrical legs, rods, shafts)
                 double centerX = (minX + maxX) / 2.0;
                 double centerY = (minY + maxY) / 2.0;
                 double radius = extDef.Radius_mm > 0 ? MmToFeet(extDef.Radius_mm) : Math.Abs(maxX - minX) / 2.0;
@@ -213,7 +244,6 @@ namespace ParametricFamilyForge.RevitEngine
             }
             else
             {
-                // Rectangular Outer Loop
                 CurveArray outerLoop = new CurveArray();
                 XYZ p1 = new XYZ(minX, minY, 0);
                 XYZ p2 = new XYZ(maxX, minY, 0);
@@ -226,7 +256,6 @@ namespace ParametricFamilyForge.RevitEngine
                 outerLoop.Append(Line.CreateBound(p4, p1));
                 profile.Append(outerLoop);
 
-                // Hollow Inner Loop if wall thickness or HollowBox specified
                 if (extDef.WallThickness_mm > 0 || string.Equals(extDef.ProfileType, "HollowBox", StringComparison.OrdinalIgnoreCase))
                 {
                     double wt = extDef.WallThickness_mm > 0 ? MmToFeet(extDef.WallThickness_mm) : MmToFeet(5.0);
@@ -254,7 +283,6 @@ namespace ParametricFamilyForge.RevitEngine
                 extrusionHeight
             );
 
-            // Set extrusion height offsets
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);
 
@@ -267,13 +295,41 @@ namespace ParametricFamilyForge.RevitEngine
                 endParam.Set(endZ);
             }
 
-            // Parameterize height if specified
+            // Link height parameter if specified
             if (!string.IsNullOrEmpty(extDef.HeightParameter))
             {
                 FamilyParameter? heightFamParam = famMgr.get_Parameter(extDef.HeightParameter);
-                if (heightFamParam != null && endParam != null && !endParam.IsReadOnly)
+                if (endParam != null && !endParam.IsReadOnly && heightFamParam != null)
                 {
-                    famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam);
+                    try { famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam); } catch { }
+                }
+            }
+
+            // Link material parameter if specified
+            if (!string.IsNullOrEmpty(extDef.MaterialParameter))
+            {
+                FamilyParameter? matFamParam = famMgr.get_Parameter(extDef.MaterialParameter);
+                if (matFamParam == null)
+                {
+                    try
+                    {
+                        matFamParam = famMgr.AddParameter(
+                            extDef.MaterialParameter,
+                            GroupTypeId.Materials,
+                            SpecTypeId.Reference.Material,
+                            false
+                        );
+                    }
+                    catch { }
+                }
+
+                if (matFamParam != null)
+                {
+                    Parameter matParam = extrusion.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                    if (matParam != null && !matParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(matParam, matFamParam); } catch { }
+                    }
                 }
             }
         }

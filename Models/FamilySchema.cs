@@ -19,8 +19,21 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("template_name")]
         public string TemplateName { get; set; } = "Metric Generic Model.rft";
 
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        [JsonPropertyName("manufacturer")]
+        public string? Manufacturer { get; set; }
+
         [JsonPropertyName("master_parameters")]
         public List<MasterParameterDef> MasterParameters { get; set; } = new();
+
+        /// <summary>
+        /// Optional list of predefined family types (Type Catalog).
+        /// When provided, each type is created with custom dimension & parameter overrides.
+        /// </summary>
+        [JsonPropertyName("family_types")]
+        public List<FamilyTypeDef> FamilyTypes { get; set; } = new();
 
         [JsonPropertyName("reference_planes")]
         public List<ReferencePlaneDef> ReferencePlanes { get; set; } = new();
@@ -32,13 +45,29 @@ namespace ParametricFamilyForge.Models
         public List<NestedFamilyDef> NestedFamilies { get; set; } = new();
     }
 
+    /// <summary>
+    /// Defines a Revit family type (variant) in the family's Type Catalog.
+    /// </summary>
+    public class FamilyTypeDef
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "Standard";
+
+        /// <summary>
+        /// Parameter name to value mapping for this type.
+        /// Values can be double (mm for length, degrees for angle), int, bool, or string.
+        /// </summary>
+        [JsonPropertyName("parameter_values")]
+        public Dictionary<string, object> ParameterValues { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
     public class MasterParameterDef
     {
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
 
         /// <summary>
-        /// "Length", "YesNo", or "Material"
+        /// Data type: "Length", "YesNo", "Material", "Angle", "Area", "Volume", "Integer", "Number", "Text", "Url"
         /// </summary>
         [JsonPropertyName("data_type")]
         public string DataType { get; set; } = "Length";
@@ -46,11 +75,38 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("default_value_mm")]
         public double DefaultValueMm { get; set; } = 0.0;
 
+        /// <summary>
+        /// General numeric default value (for Angle, Integer, Number, Area, Volume).
+        /// </summary>
+        [JsonPropertyName("default_value")]
+        public double DefaultValue { get; set; } = 0.0;
+
+        /// <summary>
+        /// Default text string (for Text and Url parameters).
+        /// </summary>
+        [JsonPropertyName("default_text")]
+        public string? DefaultText { get; set; }
+
+        /// <summary>
+        /// Target parameter group: "Dimensions", "Geometry", "Materials", "Visibility", "IdentityData", "Data", "General".
+        /// </summary>
+        [JsonPropertyName("group_type")]
+        public string? GroupType { get; set; }
+
         [JsonPropertyName("is_instance")]
         public bool IsInstance { get; set; } = false;
 
         [JsonPropertyName("formula")]
         public string? Formula { get; set; }
+
+        /// <summary>
+        /// Gets the effective numeric value in mm or unit value.
+        /// </summary>
+        public double GetEffectiveNumericValue()
+        {
+            if (DefaultValueMm != 0.0) return DefaultValueMm;
+            return DefaultValue;
+        }
     }
 
     public class ReferencePlaneDef
@@ -114,6 +170,18 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("depth_parameter")]
         public string? DepthParameter { get; set; }
+
+        /// <summary>
+        /// Optional material parameter name to link to extrusion's Material property.
+        /// </summary>
+        [JsonPropertyName("material_parameter")]
+        public string? MaterialParameter { get; set; }
+
+        /// <summary>
+        /// Optional Yes/No parameter name to link to extrusion's Visible property.
+        /// </summary>
+        [JsonPropertyName("visibility_parameter")]
+        public string? VisibilityParameter { get; set; }
     }
 
     public class NestedFamilyDef

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ParametricFamilyForge.Models;
@@ -10,7 +11,7 @@ namespace ParametricFamilyForge.RevitEngine
 {
     /// <summary>
     /// Constructs the Master Host Family (.rfa), generates parametric host geometry,
-    /// sets up reference planes, dimensional constraints, loads nested families,
+    /// sets up reference planes, dimensional constraints, multi-type catalog, loads nested families,
     /// and associates nested parameters to master family parameters.
     /// </summary>
     public static class MasterFamilyBuilder
@@ -34,6 +35,45 @@ namespace ParametricFamilyForge.RevitEngine
             if (cat.Contains("plumb")) return BuiltInCategory.OST_PlumbingFixtures;
             if (cat.Contains("column")) return BuiltInCategory.OST_Columns;
             return BuiltInCategory.OST_GenericModel;
+        }
+
+        public static ForgeTypeId ResolveSpecType(string? dataType)
+        {
+            if (string.IsNullOrWhiteSpace(dataType)) return SpecTypeId.Length;
+            string dt = dataType!.Trim().ToLowerInvariant();
+            if (dt.Contains("yes") || dt.Contains("bool")) return SpecTypeId.Boolean.YesNo;
+            if (dt.Contains("mat")) return SpecTypeId.Reference.Material;
+            if (dt.Contains("angle")) return SpecTypeId.Angle;
+            if (dt.Contains("area")) return SpecTypeId.Area;
+            if (dt.Contains("volume")) return SpecTypeId.Volume;
+            if (dt.Contains("int")) return SpecTypeId.Int.Integer;
+            if (dt.Contains("num") || dt.Contains("double")) return SpecTypeId.Number;
+            if (dt.Contains("text") || dt.Contains("string")) return SpecTypeId.String.Text;
+            if (dt.Contains("url")) return SpecTypeId.String.Url;
+            return SpecTypeId.Length;
+        }
+
+        public static ForgeTypeId ResolveGroupType(string? groupType, string? dataType)
+        {
+            if (!string.IsNullOrWhiteSpace(groupType))
+            {
+                string gt = groupType!.Trim().ToLowerInvariant();
+                if (gt.Contains("geom") || gt.Contains("dim")) return GroupTypeId.Geometry;
+                if (gt.Contains("const")) return GroupTypeId.Constraints;
+                if (gt.Contains("mat")) return GroupTypeId.Materials;
+                if (gt.Contains("vis")) return GroupTypeId.Visibility;
+                if (gt.Contains("ident")) return GroupTypeId.IdentityData;
+                if (gt.Contains("data")) return GroupTypeId.Data;
+                if (gt.Contains("gen")) return GroupTypeId.General;
+                if (gt.Contains("text")) return GroupTypeId.Text;
+            }
+
+            if (string.IsNullOrWhiteSpace(dataType)) return GroupTypeId.Geometry;
+            string dt = dataType!.Trim().ToLowerInvariant();
+            if (dt.Contains("mat")) return GroupTypeId.Materials;
+            if (dt.Contains("yes") || dt.Contains("bool")) return GroupTypeId.Visibility;
+            if (dt.Contains("text") || dt.Contains("string") || dt.Contains("url")) return GroupTypeId.IdentityData;
+            return GroupTypeId.Geometry;
         }
 
         public static string BuildAndLoadIntoProject(
@@ -66,7 +106,6 @@ namespace ParametricFamilyForge.RevitEngine
             }
             catch
             {
-                // Fallback attempt to open file directly
                 try
                 {
                     masterDoc = uiApp.Application.OpenDocumentFile(templatePath);
@@ -90,7 +129,7 @@ namespace ParametricFamilyForge.RevitEngine
             {
                 trans.Start();
 
-                // If opening a seed family (.rfa), delete any pre-existing model geometry so the family starts fresh
+                // If opening a seed family (.rfa), delete pre-existing model geometry so family starts fresh
                 try
                 {
                     var existingGeomIds = new FilteredElementCollector(masterDoc)
@@ -117,7 +156,7 @@ namespace ParametricFamilyForge.RevitEngine
 
                 FamilyManager famMgr = masterDoc.FamilyManager;
 
-                // CRITICAL FIX: Ensure at least one FamilyType exists so symbols/types are registered and schedulable
+                // Ensure at least one initial FamilyType exists
                 FamilyType? defaultType = famMgr.CurrentType;
                 if (defaultType == null)
                 {
@@ -143,36 +182,33 @@ namespace ParametricFamilyForge.RevitEngine
 
                 // 1. Create Master Parameters
                 var paramDict = new Dictionary<string, FamilyParameter>(StringComparer.OrdinalIgnoreCase);
-                foreach (var paramDef in schema.MasterParameters)
+                if (schema.MasterParameters != null)
                 {
-                    ForgeTypeId specType = SpecTypeId.Length;
-                    if (string.Equals(paramDef.DataType, "YesNo", StringComparison.OrdinalIgnoreCase))
+                    foreach (var paramDef in schema.MasterParameters)
                     {
-                        specType = SpecTypeId.Boolean.YesNo;
-                    }
-                    else if (string.Equals(paramDef.DataType, "Material", StringComparison.OrdinalIgnoreCase))
-                    {
-                        specType = SpecTypeId.Reference.Material;
-                    }
+                        try
+                        {
+                            ForgeTypeId specType = ResolveSpecType(paramDef.DataType);
+                            ForgeTypeId groupType = ResolveGroupType(paramDef.GroupType, paramDef.DataType);
 
-                    FamilyParameter famParam = famMgr.AddParameter(
-                        paramDef.Name,
-                        GroupTypeId.Geometry,
-                        specType,
-                        paramDef.IsInstance
-                    );
+                            FamilyParameter famParam = famMgr.AddParameter(
+                                paramDef.Name,
+                                groupType,
+                                specType,
+                                paramDef.IsInstance
+                            );
 
-                    if (specType == SpecTypeId.Length && paramDef.DefaultValueMm != 0)
-                    {
-                        famMgr.Set(famParam, MmToFeet(paramDef.DefaultValueMm));
+                            SetParameterDefaultValue(famMgr, famParam, paramDef, specType);
+
+                            if (!string.IsNullOrEmpty(paramDef.Formula))
+                            {
+                                try { famMgr.SetFormula(famParam, paramDef.Formula); } catch { }
+                            }
+
+                            paramDict[paramDef.Name] = famParam;
+                        }
+                        catch { }
                     }
-
-                    if (!string.IsNullOrEmpty(paramDef.Formula))
-                    {
-                        try { famMgr.SetFormula(famParam, paramDef.Formula); } catch { }
-                    }
-
-                    paramDict[paramDef.Name] = famParam;
                 }
 
                 // 2. Identify Plan View and Elevation View
@@ -191,19 +227,22 @@ namespace ParametricFamilyForge.RevitEngine
                     .Cast<View>()
                     .FirstOrDefault(v => v.ViewType == ViewType.Elevation && (v.Name.Contains("Front") || v.Name.Contains("Exterior") || v.Name.Contains("Elevation")));
 
-                // 3. Create Reference Planes & Apply The Critical Regenerate() Rule
+                // 3. Create Reference Planes & Apply Critical Regenerate() Rule
                 var createdRefPlanes = new Dictionary<string, ReferencePlane>(StringComparer.OrdinalIgnoreCase);
-                foreach (var rpDef in schema.ReferencePlanes)
+                if (schema.ReferencePlanes != null)
                 {
-                    try
+                    foreach (var rpDef in schema.ReferencePlanes)
                     {
-                        ReferencePlane? rp = CreateReferencePlane(masterDoc, planView, elevView, rpDef);
-                        if (rp != null && !string.IsNullOrEmpty(rpDef.Name))
+                        try
                         {
-                            createdRefPlanes[rpDef.Name] = rp;
+                            ReferencePlane? rp = CreateReferencePlane(masterDoc, planView, elevView, rpDef);
+                            if (rp != null && !string.IsNullOrEmpty(rpDef.Name))
+                            {
+                                createdRefPlanes[rpDef.Name] = rp;
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
                 }
 
                 // CRITICAL REQUIREMENT: Regenerate() before any geometry or dimension binding
@@ -221,28 +260,69 @@ namespace ParametricFamilyForge.RevitEngine
                     sketchPlane = SketchPlane.Create(masterDoc, defaultPlane);
                 }
 
-                foreach (var extDef in schema.HostExtrusions)
+                if (schema.HostExtrusions != null)
                 {
-                    try
+                    foreach (var extDef in schema.HostExtrusions)
                     {
-                        CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                        try
+                        {
+                            CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                        }
+                        catch { }
                     }
-                    catch { }
                 }
 
                 masterDoc.Regenerate();
 
                 // 5. Load and Place Nested Families + Associate Parameters
-                foreach (var nestedDef in schema.NestedFamilies)
+                if (schema.NestedFamilies != null)
                 {
-                    try
+                    foreach (var nestedDef in schema.NestedFamilies)
                     {
-                        if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
+                        try
                         {
-                            PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath);
+                            if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
+                            {
+                                PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath, paramDict);
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
+                }
+
+                masterDoc.Regenerate();
+
+                // 6. Multi-Type Catalog Generation (Create all defined Family Types)
+                if (schema.FamilyTypes != null && schema.FamilyTypes.Count > 0)
+                {
+                    FamilyType? primaryType = null;
+                    foreach (var typeDef in schema.FamilyTypes)
+                    {
+                        if (string.IsNullOrWhiteSpace(typeDef.Name)) continue;
+                        try
+                        {
+                            FamilyType fType = famMgr.NewType(typeDef.Name);
+                            primaryType ??= fType;
+                            famMgr.CurrentType = fType;
+
+                            if (typeDef.ParameterValues != null)
+                            {
+                                foreach (var kvp in typeDef.ParameterValues)
+                                {
+                                    if (paramDict.TryGetValue(kvp.Key, out FamilyParameter? targetParam) && targetParam != null && !targetParam.IsReadOnly)
+                                    {
+                                        ApplyDynamicValue(famMgr, targetParam, kvp.Value);
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (primaryType != null)
+                    {
+                        try { famMgr.CurrentType = primaryType; } catch { }
+                    }
                 }
 
                 masterDoc.Regenerate();
@@ -257,7 +337,7 @@ namespace ParametricFamilyForge.RevitEngine
             };
             masterDoc.SaveAs(masterRfaPath, saveOptions);
 
-            // 6. Load Master Family into Active Project Document (if one is open)
+            // 7. Load Master Family into Active Project Document (if one is open)
             if (activeProjectDoc != null && !activeProjectDoc.IsFamilyDocument)
             {
                 try
@@ -277,6 +357,143 @@ namespace ParametricFamilyForge.RevitEngine
             return masterRfaPath;
         }
 
+        private static void SetParameterDefaultValue(
+            FamilyManager famMgr, 
+            FamilyParameter famParam, 
+            MasterParameterDef paramDef, 
+            ForgeTypeId specType)
+        {
+            try
+            {
+                if (specType == SpecTypeId.Length)
+                {
+                    double mm = paramDef.GetEffectiveNumericValue();
+                    if (mm != 0) famMgr.Set(famParam, MmToFeet(mm));
+                }
+                else if (specType == SpecTypeId.Angle)
+                {
+                    double deg = paramDef.GetEffectiveNumericValue();
+                    if (deg != 0) famMgr.Set(famParam, UnitUtils.ConvertToInternalUnits(deg, UnitTypeId.Degrees));
+                }
+                else if (specType == SpecTypeId.Boolean.YesNo)
+                {
+                    famMgr.Set(famParam, paramDef.GetEffectiveNumericValue() != 0 ? 1 : 0);
+                }
+                else if (specType == SpecTypeId.Int.Integer)
+                {
+                    famMgr.Set(famParam, (int)paramDef.GetEffectiveNumericValue());
+                }
+                else if (specType == SpecTypeId.Number)
+                {
+                    famMgr.Set(famParam, paramDef.GetEffectiveNumericValue());
+                }
+                else if (specType == SpecTypeId.String.Text || specType == SpecTypeId.String.Url)
+                {
+                    if (!string.IsNullOrEmpty(paramDef.DefaultText))
+                    {
+                        famMgr.Set(famParam, paramDef.DefaultText);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void ApplyDynamicValue(FamilyManager famMgr, FamilyParameter targetParam, object rawValue)
+        {
+            try
+            {
+                ForgeTypeId spec = targetParam.Definition.GetDataType();
+                double numVal = 0.0;
+                bool hasNum = false;
+
+                if (rawValue is JsonElement je)
+                {
+                    if (je.ValueKind == JsonValueKind.Number && je.TryGetDouble(out double d))
+                    {
+                        numVal = d;
+                        hasNum = true;
+                    }
+                    else if (je.ValueKind == JsonValueKind.True)
+                    {
+                        numVal = 1;
+                        hasNum = true;
+                    }
+                    else if (je.ValueKind == JsonValueKind.False)
+                    {
+                        numVal = 0;
+                        hasNum = true;
+                    }
+                    else if (je.ValueKind == JsonValueKind.String)
+                    {
+                        string s = je.GetString() ?? "";
+                        if (spec == SpecTypeId.String.Text || spec == SpecTypeId.String.Url)
+                        {
+                            famMgr.Set(targetParam, s);
+                            return;
+                        }
+                        if (double.TryParse(s, out double parsed))
+                        {
+                            numVal = parsed;
+                            hasNum = true;
+                        }
+                    }
+                }
+                else if (rawValue is double d)
+                {
+                    numVal = d;
+                    hasNum = true;
+                }
+                else if (rawValue is int i)
+                {
+                    numVal = i;
+                    hasNum = true;
+                }
+                else if (rawValue is bool b)
+                {
+                    numVal = b ? 1 : 0;
+                    hasNum = true;
+                }
+                else if (rawValue is string s)
+                {
+                    if (spec == SpecTypeId.String.Text || spec == SpecTypeId.String.Url)
+                    {
+                        famMgr.Set(targetParam, s);
+                        return;
+                    }
+                    if (double.TryParse(s, out double parsed))
+                    {
+                        numVal = parsed;
+                        hasNum = true;
+                    }
+                }
+
+                if (hasNum)
+                {
+                    if (spec == SpecTypeId.Length)
+                    {
+                        famMgr.Set(targetParam, MmToFeet(numVal));
+                    }
+                    else if (spec == SpecTypeId.Angle)
+                    {
+                        famMgr.Set(targetParam, UnitUtils.ConvertToInternalUnits(numVal, UnitTypeId.Degrees));
+                    }
+                    else if (spec == SpecTypeId.Boolean.YesNo)
+                    {
+                        famMgr.Set(targetParam, numVal != 0 ? 1 : 0);
+                    }
+                    else if (spec == SpecTypeId.Int.Integer)
+                    {
+                        famMgr.Set(targetParam, (int)numVal);
+                    }
+                    else
+                    {
+                        famMgr.Set(targetParam, numVal);
+                    }
+                }
+            }
+            catch { }
+        }
+
         private static ReferencePlane? CreateReferencePlane(Document doc, View planView, View? elevView, ReferencePlaneDef rpDef)
         {
             try
@@ -289,7 +506,6 @@ namespace ParametricFamilyForge.RevitEngine
 
                 if (string.Equals(rpDef.Orientation, "X", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Parallel to Y axis in Plan View
                     bubbleEnd = new XYZ(offsetFeet, -10.0, 0.0);
                     freeEnd = new XYZ(offsetFeet, 10.0, 0.0);
                     cutVec = XYZ.BasisX;
@@ -297,7 +513,6 @@ namespace ParametricFamilyForge.RevitEngine
                 }
                 else if (string.Equals(rpDef.Orientation, "Y", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Parallel to X axis in Plan View
                     bubbleEnd = new XYZ(-10.0, offsetFeet, 0.0);
                     freeEnd = new XYZ(10.0, offsetFeet, 0.0);
                     cutVec = XYZ.BasisY;
@@ -305,7 +520,6 @@ namespace ParametricFamilyForge.RevitEngine
                 }
                 else
                 {
-                    // Elevation plane (Z)
                     if (elevView != null)
                     {
                         bubbleEnd = new XYZ(-10.0, 0.0, offsetFeet);
@@ -430,7 +644,68 @@ namespace ParametricFamilyForge.RevitEngine
             {
                 if (endParam != null && !endParam.IsReadOnly && heightFamParam != null)
                 {
-                    famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam);
+                    try { famMgr.AssociateElementParameterToFamilyParameter(endParam, heightFamParam); } catch { }
+                }
+            }
+
+            // Link material parameter if specified
+            if (!string.IsNullOrEmpty(extDef.MaterialParameter))
+            {
+                string matName = extDef.MaterialParameter!;
+                FamilyParameter? matFamParam = famMgr.get_Parameter(matName);
+                if (matFamParam == null)
+                {
+                    try
+                    {
+                        matFamParam = famMgr.AddParameter(
+                            matName,
+                            GroupTypeId.Materials,
+                            SpecTypeId.Reference.Material,
+                            false
+                        );
+                        paramDict[matName] = matFamParam;
+                    }
+                    catch { }
+                }
+
+                if (matFamParam != null)
+                {
+                    Parameter matParam = extrusion.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                    if (matParam != null && !matParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(matParam, matFamParam); } catch { }
+                    }
+                }
+            }
+
+            // Link visibility Yes/No parameter if specified
+            if (!string.IsNullOrEmpty(extDef.VisibilityParameter))
+            {
+                string visName = extDef.VisibilityParameter!;
+                FamilyParameter? visFamParam = famMgr.get_Parameter(visName);
+                if (visFamParam == null)
+                {
+                    try
+                    {
+                        visFamParam = famMgr.AddParameter(
+                            visName,
+                            GroupTypeId.Visibility,
+                            SpecTypeId.Boolean.YesNo,
+                            false
+                        );
+                        famMgr.Set(visFamParam, 1);
+                        paramDict[visName] = visFamParam;
+                    }
+                    catch { }
+                }
+
+                if (visFamParam != null)
+                {
+                    Parameter visParam = extrusion.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
+                    if (visParam != null && !visParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(visParam, visFamParam); } catch { }
+                    }
                 }
             }
         }
@@ -439,14 +714,13 @@ namespace ParametricFamilyForge.RevitEngine
             Document masterDoc,
             FamilyManager famMgr,
             NestedFamilyDef nestedDef,
-            string nestedRfaPath)
+            string nestedRfaPath,
+            Dictionary<string, FamilyParameter> paramDict)
         {
-            // Load nested RFA into Master Family
             Family? loadedNestedFamily = null;
             bool loaded = masterDoc.LoadFamily(nestedRfaPath, out loadedNestedFamily);
             if (!loaded && loadedNestedFamily == null)
             {
-                // In case it was already loaded earlier
                 loadedNestedFamily = new FilteredElementCollector(masterDoc)
                     .OfClass(typeof(Family))
                     .Cast<Family>()
@@ -465,7 +739,6 @@ namespace ParametricFamilyForge.RevitEngine
 
             if (symbol == null)
             {
-                // Fallback query for symbol belonging to this family
                 symbol = new FilteredElementCollector(masterDoc)
                     .OfClass(typeof(FamilySymbol))
                     .Cast<FamilySymbol>()
@@ -474,14 +747,12 @@ namespace ParametricFamilyForge.RevitEngine
 
             if (symbol == null) return;
 
-            // Activate symbol if not active
             if (!symbol.IsActive)
             {
                 symbol.Activate();
                 masterDoc.Regenerate();
             }
 
-            // Placement point
             XYZ origin = new XYZ(
                 MmToFeet(nestedDef.PlacementOffsetMm.X),
                 MmToFeet(nestedDef.PlacementOffsetMm.Y),
@@ -494,8 +765,7 @@ namespace ParametricFamilyForge.RevitEngine
                 Autodesk.Revit.DB.Structure.StructuralType.NonStructural
             );
 
-            // Parameter Association (Critical Step)
-            // Associate nested instance parameters to host family parameters
+            // Parameter Association
             foreach (var kvp in nestedDef.ParameterBindings)
             {
                 string nestedParamName = kvp.Key;
@@ -504,40 +774,60 @@ namespace ParametricFamilyForge.RevitEngine
                 Parameter? nestedElemParam = nestedInstance.LookupParameter(nestedParamName);
                 FamilyParameter? masterFamParam = famMgr.get_Parameter(masterParamName);
 
+                if (masterFamParam == null)
+                {
+                    try
+                    {
+                        masterFamParam = famMgr.AddParameter(
+                            masterParamName,
+                            GroupTypeId.Geometry,
+                            SpecTypeId.Length,
+                            false
+                        );
+                        paramDict[masterParamName] = masterFamParam;
+                    }
+                    catch { }
+                }
+
                 if (nestedElemParam != null && masterFamParam != null && !nestedElemParam.IsReadOnly)
                 {
-                    famMgr.AssociateElementParameterToFamilyParameter(nestedElemParam, masterFamParam);
+                    try { famMgr.AssociateElementParameterToFamilyParameter(nestedElemParam, masterFamParam); } catch { }
                 }
             }
 
-            // Visibility Association (for component toggling, e.g. Show_Lever_Handle / Show_Pull_Bar)
+            // Visibility Association
             if (!string.IsNullOrEmpty(nestedDef.VisibilityParameter))
             {
+                string visName = nestedDef.VisibilityParameter!;
                 Parameter? visParam = nestedInstance.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
-                FamilyParameter? masterVisParam = famMgr.get_Parameter(nestedDef.VisibilityParameter);
+                FamilyParameter? masterVisParam = famMgr.get_Parameter(visName);
 
                 if (masterVisParam == null)
                 {
-                    // Create master Yes/No parameter if not already defined
-                    masterVisParam = famMgr.AddParameter(
-                        nestedDef.VisibilityParameter,
-                        GroupTypeId.Visibility,
-                        SpecTypeId.Boolean.YesNo,
-                        false
-                    );
-                    famMgr.Set(masterVisParam, 1); // Default to visible
+                    try
+                    {
+                        masterVisParam = famMgr.AddParameter(
+                            visName,
+                            GroupTypeId.Visibility,
+                            SpecTypeId.Boolean.YesNo,
+                            false
+                        );
+                        famMgr.Set(masterVisParam, 1);
+                        paramDict[visName] = masterVisParam;
+                    }
+                    catch { }
                 }
 
                 if (visParam != null && !visParam.IsReadOnly && masterVisParam != null)
                 {
-                    famMgr.AssociateElementParameterToFamilyParameter(visParam, masterVisParam);
+                    try { famMgr.AssociateElementParameterToFamilyParameter(visParam, masterVisParam); } catch { }
                 }
             }
         }
     }
 
     /// <summary>
-    /// Custom IFamilyLoadOptions implementation to always overwrite existing family parameters and definitions.
+    /// Custom IFamilyLoadOptions implementation to overwrite existing family parameters and definitions.
     /// </summary>
     public class FamilyLoadOptions : IFamilyLoadOptions
     {

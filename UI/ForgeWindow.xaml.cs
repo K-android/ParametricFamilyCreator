@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
 using Microsoft.Win32;
@@ -19,6 +20,7 @@ namespace ParametricFamilyForge.UI
         private readonly GeminiVisionService _geminiService;
         private ForgeSettings _settings;
         private string? _selectedImagePath;
+        private bool _isUpdatingPreview = false;
 
         public ForgeWindow(ExternalEvent externalEvent, FamilyGenerationHandler handler)
         {
@@ -143,14 +145,70 @@ namespace ParametricFamilyForge.UI
 
         private void LoadDefaultPreviewSchema()
         {
-            var defaultSchema = _geminiService.GenerateDeterministicFallback("workstation");
+            var defaultSchema = PresetService.GetPresetSchema("workstation");
             UpdateJsonPreview(defaultSchema);
         }
 
         private void UpdateJsonPreview(FamilySchema schema)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            TxtJsonPreview.Text = JsonSerializer.Serialize(schema, options);
+            _isUpdatingPreview = true;
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                TxtJsonPreview.Text = JsonSerializer.Serialize(schema, options);
+                RunQuickValidation(schema);
+            }
+            finally
+            {
+                _isUpdatingPreview = false;
+            }
+        }
+
+        private void RunQuickValidation(FamilySchema? schema = null)
+        {
+            if (schema == null)
+            {
+                try
+                {
+                    string json = TxtJsonPreview.Text.Trim();
+                    if (string.IsNullOrEmpty(json)) return;
+                    schema = JsonSerializer.Deserialize<FamilySchema>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch
+                {
+                    TxtValidationStatus.Text = "❌ Invalid JSON syntax";
+                    TxtValidationStatus.Foreground = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+                    TxtValidationBadge.Text = "Syntax Error";
+                    TxtValidationBadge.Foreground = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+                    ValidationBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+                    return;
+                }
+            }
+
+            var report = SchemaValidator.Validate(schema);
+            if (report.IsValid)
+            {
+                string warnSuffix = report.Warnings.Count > 0 ? $" ({report.Warnings.Count} warnings)" : "";
+                TxtValidationStatus.Text = $"✅ Ready: {report.ParameterCount} Params, {report.ExtrusionCount} Extrusions, {report.NestedFamilyCount} Nested, {report.TypeCount} Types{warnSuffix}";
+                TxtValidationStatus.Foreground = report.Warnings.Count > 0 ? new SolidColorBrush(Color.FromRgb(229, 192, 123)) : new SolidColorBrush(Color.FromRgb(152, 195, 121));
+                TxtValidationBadge.Text = report.Warnings.Count > 0 ? "Validated (Warnings)" : "Valid Schema";
+                TxtValidationBadge.Foreground = report.Warnings.Count > 0 ? new SolidColorBrush(Color.FromRgb(229, 192, 123)) : new SolidColorBrush(Color.FromRgb(152, 195, 121));
+                ValidationBanner.BorderBrush = report.Warnings.Count > 0 ? new SolidColorBrush(Color.FromRgb(229, 192, 123)) : new SolidColorBrush(Color.FromRgb(152, 195, 121));
+            }
+            else
+            {
+                TxtValidationStatus.Text = $"❌ Errors detected: {string.Join(" | ", report.Errors)}";
+                TxtValidationStatus.Foreground = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+                TxtValidationBadge.Text = $"{report.Errors.Count} Error(s)";
+                TxtValidationBadge.Foreground = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+                ValidationBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 108, 117));
+            }
+        }
+
+        private void TxtJsonPreview_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingPreview) return;
+            RunQuickValidation();
         }
 
         private void LogMessage(string message)
@@ -158,6 +216,165 @@ namespace ParametricFamilyForge.UI
             TxtLogs.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
             TxtLogs.ScrollToEnd();
         }
+
+        private void BtnClearLogs_Click(object sender, RoutedEventArgs e)
+        {
+            TxtLogs.Clear();
+            LogMessage("Execution logs cleared.");
+        }
+
+        #region Presets and Schema Tools (Import, Export, Catalog)
+
+        private void CmbPresets_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CmbPresets.SelectedItem is ComboBoxItem item && item.Tag != null)
+            {
+                string key = item.Tag.ToString()!;
+                if (!string.IsNullOrEmpty(key))
+                {
+                    var schema = PresetService.GetPresetSchema(key);
+                    UpdateJsonPreview(schema);
+                    LogMessage($"Loaded built-in architectural preset: '{schema.MasterFamilyName}' ({schema.HostExtrusions.Count} extrusions, {schema.FamilyTypes.Count} types).");
+                    if (!string.IsNullOrEmpty(schema.Description))
+                    {
+                        TxtPrompt.Text = schema.Description;
+                    }
+                }
+            }
+        }
+
+        private void BtnImportJson_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Import Family Schema JSON",
+                Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*"
+            };
+
+            if (dlg.ShowDialog(this) == true)
+            {
+                try
+                {
+                    var schema = PresetService.ImportSchemaFromJson(dlg.FileName);
+                    if (schema != null)
+                    {
+                        UpdateJsonPreview(schema);
+                        LogMessage($"Successfully imported FamilySchema from '{dlg.FileName}'.");
+                    }
+                    else
+                    {
+                        MessageBox.Show(this, "The selected file is not a valid FamilySchema JSON file.", "Import Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"Failed to import JSON: {ex.Message}", "Import Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void BtnExportJson_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string jsonText = TxtJsonPreview.Text.Trim();
+                var schema = JsonSerializer.Deserialize<FamilySchema>(jsonText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (schema == null) throw new InvalidOperationException("Current schema in editor is invalid.");
+
+                var dlg = new SaveFileDialog
+                {
+                    Title = "Export Family Schema JSON",
+                    Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*",
+                    FileName = $"{schema.MasterFamilyName}_Schema.json"
+                };
+
+                if (dlg.ShowDialog(this) == true)
+                {
+                    PresetService.ExportSchemaToJson(schema, dlg.FileName);
+                    LogMessage($"Saved FamilySchema specification to '{dlg.FileName}'.");
+                    MessageBox.Show(this, $"Family specification successfully saved to:\n{dlg.FileName}", "Schema Exported", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to export JSON: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnExportCsv_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string jsonText = TxtJsonPreview.Text.Trim();
+                var schema = JsonSerializer.Deserialize<FamilySchema>(jsonText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (schema == null) throw new InvalidOperationException("Current schema in editor is invalid.");
+
+                var dlg = new SaveFileDialog
+                {
+                    Title = "Export Revit Type Catalog (CSV Schedule)",
+                    Filter = "CSV / Type Catalog Files (*.txt;*.csv)|*.txt;*.csv|All Files (*.*)|*.*",
+                    FileName = $"{schema.MasterFamilyName}.txt"
+                };
+
+                if (dlg.ShowDialog(this) == true)
+                {
+                    PresetService.ExportCatalogToCsv(schema, dlg.FileName);
+                    LogMessage($"Exported Revit Type Catalog schedule to '{dlg.FileName}'.");
+                    MessageBox.Show(this, $"Revit Type Catalog successfully generated at:\n{dlg.FileName}\n\n(Place this file alongside the .rfa with the identical base name for Revit's automatic Type Catalog prompt)", "Catalog Exported", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to export Type Catalog: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnValidate_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string jsonText = TxtJsonPreview.Text.Trim();
+                var schema = JsonSerializer.Deserialize<FamilySchema>(jsonText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var report = SchemaValidator.Validate(schema);
+
+                RunQuickValidation(schema);
+
+                LogMessage("=============================================");
+                LogMessage($"[Schema Validation] {report.SummaryText}");
+                if (report.Errors.Count > 0)
+                {
+                    foreach (var err in report.Errors)
+                    {
+                        LogMessage($"  [ERROR] {err}");
+                    }
+                }
+                if (report.Warnings.Count > 0)
+                {
+                    foreach (var warn in report.Warnings)
+                    {
+                        LogMessage($"  [WARN] {warn}");
+                    }
+                }
+                LogMessage("=============================================");
+
+                if (report.IsValid)
+                {
+                    string msg = $"Schema verification succeeded!\n\nParameters: {report.ParameterCount}\nExtrusions: {report.ExtrusionCount}\nNested Components: {report.NestedFamilyCount}\nFamily Types: {report.TypeCount}";
+                    if (report.Warnings.Count > 0) msg += $"\n\nWarnings ({report.Warnings.Count}):\n- " + string.Join("\n- ", report.Warnings);
+                    MessageBox.Show(this, msg, "Schema Verification Passed", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show(this, $"Schema verification failed with {report.Errors.Count} error(s):\n\n- " + string.Join("\n- ", report.Errors), "Schema Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Schema validation error: {ex.Message}", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        #endregion
 
         #region Image Handling (Browse & Drag-and-Drop)
 
@@ -361,7 +578,7 @@ namespace ParametricFamilyForge.UI
                 BtnSynthesizeAi.IsEnabled = false;
                 BtnSynthesizeAi.Content = "⏳ AI Modelling... (0s)";
                 TxtAiElapsed.Text = "0s";
-                TxtAiStatus.Text = $"Starting Gemini 3/4 multimodal synthesis ({model})...";
+                TxtAiStatus.Text = $"Starting Gemini multimodal synthesis ({model})...";
                 AiStatusBanner.Visibility = Visibility.Visible;
                 ProgBar.Visibility = Visibility.Visible;
                 elapsedTimer.Start();
@@ -448,6 +665,24 @@ namespace ParametricFamilyForge.UI
                     return;
                 }
 
+                // Run pre-generation diagnostic check
+                var validation = SchemaValidator.Validate(schema);
+                if (!validation.IsValid)
+                {
+                    string errList = string.Join("\n- ", validation.Errors);
+                    MessageBox.Show(this, $"Cannot generate Revit family due to validation errors:\n\n- {errList}", "Validation Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    LogMessage($"[Generation Blocked] {validation.Errors.Count} validation error(s) prevented Revit API execution.");
+                    return;
+                }
+
+                if (validation.Warnings.Count > 0)
+                {
+                    foreach (var warn in validation.Warnings)
+                    {
+                        LogMessage($"[Pre-Build Notice] {warn}");
+                    }
+                }
+
                 string templateDir = TxtTemplateDir.Text.Trim();
                 string outputDir = TxtOutputDir.Text.Trim();
 
@@ -462,7 +697,7 @@ namespace ParametricFamilyForge.UI
 
                 BtnGenerateRevitFamily.IsEnabled = false;
                 ProgBar.Visibility = Visibility.Visible;
-                LogMessage("Raising Revit ExternalEvent to execute family generation on Revit main UI thread...");
+                LogMessage($"Raising Revit ExternalEvent for '{schema.MasterFamilyName}' ({schema.FamilyTypes.Count} types, {schema.HostExtrusions.Count} extrusions, {schema.NestedFamilies.Count} nested)...");
 
                 _externalEvent.Raise();
             }

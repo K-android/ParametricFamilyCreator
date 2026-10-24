@@ -35,11 +35,29 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("family_types")]
         public List<FamilyTypeDef> FamilyTypes { get; set; } = new();
 
+        /// <summary>
+        /// Optional Revit Subcategories to organize geometry with independent line weights and visibility.
+        /// </summary>
+        [JsonPropertyName("subcategories")]
+        public List<string> Subcategories { get; set; } = new();
+
         [JsonPropertyName("reference_planes")]
         public List<ReferencePlaneDef> ReferencePlanes { get; set; } = new();
 
         [JsonPropertyName("host_extrusions")]
         public List<ExtrusionDef> HostExtrusions { get; set; } = new();
+
+        /// <summary>
+        /// Host Blends transitioning smoothly between top and bottom profiles (tapered pedestals, cones, pyramids).
+        /// </summary>
+        [JsonPropertyName("host_blends")]
+        public List<BlendDef> HostBlends { get; set; } = new();
+
+        /// <summary>
+        /// Host Sweeps extruding a profile along a 3D path (curved spouts, grab bars, moldings, trims).
+        /// </summary>
+        [JsonPropertyName("host_sweeps")]
+        public List<SweepDef> HostSweeps { get; set; } = new();
 
         [JsonPropertyName("nested_families")]
         public List<NestedFamilyDef> NestedFamilies { get; set; } = new();
@@ -193,6 +211,120 @@ namespace ParametricFamilyForge.Models
         /// <summary>
         /// Optional Yes/No parameter name to link to extrusion's Visible property.
         /// </summary>
+        [JsonPropertyName("visibility_parameter")]
+        public string? VisibilityParameter { get; set; }
+
+        /// <summary>
+        /// Optional Revit Subcategory name (e.g. "Bowl", "Pedestal", "Hardware", "Glazing").
+        /// </summary>
+        [JsonPropertyName("subcategory")]
+        public string? Subcategory { get; set; }
+    }
+
+    /// <summary>
+    /// Defines a 3D blend between a bottom and top profile (e.g., tapering pedestals, cones, truncated pyramids).
+    /// </summary>
+    public class BlendDef
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "SolidBlend";
+
+        [JsonPropertyName("is_void")]
+        public bool IsVoid { get; set; } = false;
+
+        /// <summary>
+        /// Profile shape: "Rectangle", "Cylinder", "Circle", "Oval", "DShape", "RoundedRectangle".
+        /// </summary>
+        [JsonPropertyName("bottom_profile_type")]
+        public string BottomProfileType { get; set; } = "Rectangle";
+
+        [JsonPropertyName("top_profile_type")]
+        public string TopProfileType { get; set; } = "Rectangle";
+
+        [JsonPropertyName("bottom_min_x_mm")]
+        public double BottomMinX_mm { get; set; }
+
+        [JsonPropertyName("bottom_min_y_mm")]
+        public double BottomMinY_mm { get; set; }
+
+        [JsonPropertyName("bottom_max_x_mm")]
+        public double BottomMaxX_mm { get; set; }
+
+        [JsonPropertyName("bottom_max_y_mm")]
+        public double BottomMaxY_mm { get; set; }
+
+        [JsonPropertyName("bottom_radius_mm")]
+        public double BottomRadius_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("top_min_x_mm")]
+        public double TopMinX_mm { get; set; }
+
+        [JsonPropertyName("top_min_y_mm")]
+        public double TopMinY_mm { get; set; }
+
+        [JsonPropertyName("top_max_x_mm")]
+        public double TopMaxX_mm { get; set; }
+
+        [JsonPropertyName("top_max_y_mm")]
+        public double TopMaxY_mm { get; set; }
+
+        [JsonPropertyName("top_radius_mm")]
+        public double TopRadius_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("bottom_offset_mm")]
+        public double BottomOffset_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("top_offset_mm")]
+        public double TopOffset_mm { get; set; } = 100.0;
+
+        [JsonPropertyName("subcategory")]
+        public string? Subcategory { get; set; }
+
+        [JsonPropertyName("material_parameter")]
+        public string? MaterialParameter { get; set; }
+
+        [JsonPropertyName("visibility_parameter")]
+        public string? VisibilityParameter { get; set; }
+    }
+
+    /// <summary>
+    /// Defines a 3D sweep that extrudes a profile along a 3D path curve (curved spouts, towel rails, moldings, trims).
+    /// </summary>
+    public class SweepDef
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "SolidSweep";
+
+        [JsonPropertyName("is_void")]
+        public bool IsVoid { get; set; } = false;
+
+        /// <summary>
+        /// "Circle" or "Rectangle"
+        /// </summary>
+        [JsonPropertyName("profile_type")]
+        public string ProfileType { get; set; } = "Circle";
+
+        [JsonPropertyName("profile_radius_mm")]
+        public double ProfileRadius_mm { get; set; } = 15.0;
+
+        [JsonPropertyName("profile_width_mm")]
+        public double ProfileWidth_mm { get; set; } = 30.0;
+
+        [JsonPropertyName("profile_height_mm")]
+        public double ProfileHeight_mm { get; set; } = 30.0;
+
+        /// <summary>
+        /// Ordered sequence of 3D points defining the path segments (in mm).
+        /// </summary>
+        [JsonPropertyName("path_points_mm")]
+        public List<VectorOffsetDef> PathPoints_mm { get; set; } = new();
+
+        [JsonPropertyName("subcategory")]
+        public string? Subcategory { get; set; }
+
+        [JsonPropertyName("material_parameter")]
+        public string? MaterialParameter { get; set; }
+
         [JsonPropertyName("visibility_parameter")]
         public string? VisibilityParameter { get; set; }
     }

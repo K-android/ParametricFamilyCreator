@@ -1,3 +1,5 @@
+using System.Data;
+using System.Globalization;
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
@@ -248,6 +250,15 @@ namespace ParametricFamilyForge.RevitEngine
                 // CRITICAL REQUIREMENT: Regenerate() before any geometry or dimension binding
                 masterDoc.Regenerate();
 
+                // 3b. Initialize Revit BIM Subcategories
+                if (schema.Subcategories != null)
+                {
+                    foreach (var subName in schema.Subcategories)
+                    {
+                        EnsureSubcategory(masterDoc, subName);
+                    }
+                }
+
                 // 4. Create Host Extrusions
                 SketchPlane? sketchPlane = new FilteredElementCollector(masterDoc)
                     .OfClass(typeof(SketchPlane))
@@ -268,6 +279,34 @@ namespace ParametricFamilyForge.RevitEngine
                         try
                         {
                             CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict, createdSolids);
+                        }
+                        catch { }
+                    }
+                }
+
+                masterDoc.Regenerate();
+
+                // 4b. Create Host Blends (tapered pedestals, transitions)
+                if (schema.HostBlends != null)
+                {
+                    foreach (var blendDef in schema.HostBlends)
+                    {
+                        try
+                        {
+                            CreateHostBlend(masterDoc, uiApp.Application, famMgr, sketchPlane, blendDef, paramDict, createdSolids);
+                        }
+                        catch { }
+                    }
+                }
+
+                // 4c. Create Host Sweeps (curved spouts, grab bars, rails, moldings)
+                if (schema.HostSweeps != null)
+                {
+                    foreach (var sweepDef in schema.HostSweeps)
+                    {
+                        try
+                        {
+                            CreateHostSweep(masterDoc, uiApp.Application, famMgr, sketchPlane, sweepDef, paramDict, createdSolids);
                         }
                         catch { }
                     }
@@ -816,6 +855,472 @@ namespace ParametricFamilyForge.RevitEngine
                 if (visFamParam != null)
                 {
                     Parameter visParam = extrusion.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
+                    if (visParam != null && !visParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(visParam, visFamParam); } catch { }
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(extDef.Subcategory))
+            {
+                Category? subcat = EnsureSubcategory(doc, extDef.Subcategory);
+                if (subcat != null)
+                {
+                    try { extrusion.Subcategory = subcat; } catch { }
+                }
+            }
+        }
+
+        public static Category? EnsureSubcategory(Document doc, string? subcatName)
+        {
+            if (string.IsNullOrWhiteSpace(subcatName)) return null;
+            try
+            {
+                Category? parentCat = doc.OwnerFamily?.FamilyCategory;
+                if (parentCat == null) return null;
+
+                Category? existing = parentCat.SubCategories
+                    .Cast<Category>()
+                    .FirstOrDefault(c => string.Equals(c.Name, subcatName, StringComparison.OrdinalIgnoreCase));
+
+                if (existing != null) return existing;
+
+                return doc.Settings.Categories.NewSubcategory(parentCat, subcatName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static double EvaluateExpression(string? expr, Dictionary<string, double>? paramValues = null)
+        {
+            if (string.IsNullOrWhiteSpace(expr)) return 0.0;
+            if (double.TryParse(expr, NumberStyles.Any, CultureInfo.InvariantCulture, out double directVal))
+                return directVal;
+
+            string evaluated = expr!;
+            if (paramValues != null)
+            {
+                foreach (var kvp in paramValues.OrderByDescending(k => k.Key.Length))
+                {
+                    evaluated = evaluated.Replace(kvp.Key, kvp.Value.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            try
+            {
+                using var dt = new DataTable();
+                object result = dt.Compute(evaluated, "");
+                return Convert.ToDouble(result, CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        public static CurveArray BuildBlendProfileLoop(string? profileType, double minX, double maxX, double minY, double maxY, double radiusFeet)
+        {
+            CurveArray loop = new CurveArray();
+            string pType = profileType?.Trim().ToLowerInvariant() ?? "rectangle";
+
+            double midX = (minX + maxX) / 2.0;
+            double midY = (minY + maxY) / 2.0;
+
+            if (pType == "cylinder" || pType == "circle")
+            {
+                double r = radiusFeet > 0 ? radiusFeet : Math.Max(Math.Abs(maxX - minX) / 2.0, MmToFeet(5.0));
+                List<XYZ> pts = new List<XYZ>();
+                for (int i = 0; i < 8; i++)
+                {
+                    double angle = 2.0 * Math.PI * i / 8.0;
+                    pts.Add(new XYZ(midX + r * Math.Cos(angle), midY + r * Math.Sin(angle), 0));
+                }
+                for (int i = 0; i < 8; i++)
+                {
+                    int next = (i + 1) % 8;
+                    loop.Append(Line.CreateBound(pts[i], pts[next]));
+                }
+            }
+            else if (pType == "oval" || pType == "ellipse")
+            {
+                double rx = Math.Max(Math.Abs(maxX - minX) / 2.0, MmToFeet(5.0));
+                double ry = Math.Max(Math.Abs(maxY - minY) / 2.0, MmToFeet(5.0));
+                List<XYZ> pts = new List<XYZ>();
+                for (int i = 0; i < 8; i++)
+                {
+                    double angle = 2.0 * Math.PI * i / 8.0;
+                    pts.Add(new XYZ(midX + rx * Math.Cos(angle), midY + ry * Math.Sin(angle), 0));
+                }
+                for (int i = 0; i < 8; i++)
+                {
+                    int next = (i + 1) % 8;
+                    loop.Append(Line.CreateBound(pts[i], pts[next]));
+                }
+            }
+            else if (pType == "dshape" || pType == "basin" || pType == "bowfront" || pType == "pedestal")
+            {
+                double ySplit = maxY - (maxY - minY) * 0.40;
+                if (ySplit <= minY + MmToFeet(2.0)) ySplit = (minY + maxY) / 2.0;
+
+                XYZ p0 = new XYZ(minX, ySplit, 0);
+                XYZ p1 = new XYZ(minX, maxY, 0);
+                XYZ p2 = new XYZ(midX, maxY, 0);
+                XYZ p3 = new XYZ(maxX, maxY, 0);
+                XYZ p4 = new XYZ(maxX, ySplit, 0);
+                
+                double bowW = (maxX - minX) / 2.0;
+                XYZ p5 = new XYZ(maxX - bowW * 0.3, minY + (ySplit - minY) * 0.3, 0);
+                XYZ p6 = new XYZ(midX, minY, 0);
+                XYZ p7 = new XYZ(minX + bowW * 0.3, minY + (ySplit - minY) * 0.3, 0);
+
+                loop.Append(Line.CreateBound(p0, p1));
+                loop.Append(Line.CreateBound(p1, p2));
+                loop.Append(Line.CreateBound(p2, p3));
+                loop.Append(Line.CreateBound(p3, p4));
+                loop.Append(Line.CreateBound(p4, p5));
+                loop.Append(Line.CreateBound(p5, p6));
+                loop.Append(Line.CreateBound(p6, p7));
+                loop.Append(Line.CreateBound(p7, p0));
+            }
+            else
+            {
+                XYZ p0 = new XYZ(minX, minY, 0);
+                XYZ p1 = new XYZ(midX, minY, 0);
+                XYZ p2 = new XYZ(maxX, minY, 0);
+                XYZ p3 = new XYZ(maxX, midY, 0);
+                XYZ p4 = new XYZ(maxX, maxY, 0);
+                XYZ p5 = new XYZ(midX, maxY, 0);
+                XYZ p6 = new XYZ(minX, maxY, 0);
+                XYZ p7 = new XYZ(minX, midY, 0);
+
+                loop.Append(Line.CreateBound(p0, p1));
+                loop.Append(Line.CreateBound(p1, p2));
+                loop.Append(Line.CreateBound(p2, p3));
+                loop.Append(Line.CreateBound(p3, p4));
+                loop.Append(Line.CreateBound(p4, p5));
+                loop.Append(Line.CreateBound(p5, p6));
+                loop.Append(Line.CreateBound(p6, p7));
+                loop.Append(Line.CreateBound(p7, p0));
+            }
+
+            return loop;
+        }
+
+        private static void CreateHostBlend(
+            Document doc,
+            Autodesk.Revit.ApplicationServices.Application app,
+            FamilyManager famMgr,
+            SketchPlane sketchPlane,
+            BlendDef blendDef,
+            Dictionary<string, FamilyParameter> paramDict,
+            List<CombinableElement> createdSolids)
+        {
+            double bMinX = MmToFeet(blendDef.BottomMinX_mm);
+            double bMaxX = MmToFeet(blendDef.BottomMaxX_mm);
+            double bMinY = MmToFeet(blendDef.BottomMinY_mm);
+            double bMaxY = MmToFeet(blendDef.BottomMaxY_mm);
+            double bRad = blendDef.BottomRadius_mm > 0 ? MmToFeet(blendDef.BottomRadius_mm) : 0;
+
+            double tMinX = MmToFeet(blendDef.TopMinX_mm);
+            double tMaxX = MmToFeet(blendDef.TopMaxX_mm);
+            double tMinY = MmToFeet(blendDef.TopMinY_mm);
+            double tMaxY = MmToFeet(blendDef.TopMaxY_mm);
+            double tRad = blendDef.TopRadius_mm > 0 ? MmToFeet(blendDef.TopRadius_mm) : 0;
+
+            if (bMaxX <= bMinX) bMaxX = bMinX + MmToFeet(10.0);
+            if (bMaxY <= bMinY) bMaxY = bMinY + MmToFeet(10.0);
+            if (tMaxX <= tMinX) tMaxX = tMinX + MmToFeet(10.0);
+            if (tMaxY <= tMinY) tMaxY = tMinY + MmToFeet(10.0);
+
+            CurveArray bottomProfile = BuildBlendProfileLoop(blendDef.BottomProfileType, bMinX, bMaxX, bMinY, bMaxY, bRad);
+            CurveArray topProfile = BuildBlendProfileLoop(blendDef.TopProfileType, tMinX, tMaxX, tMinY, tMaxY, tRad);
+
+            double bOffsetFeet = MmToFeet(blendDef.BottomOffset_mm);
+            double tOffsetFeet = MmToFeet(blendDef.TopOffset_mm);
+
+            bool isSolid = !blendDef.IsVoid;
+            Blend blend = doc.FamilyCreate.NewBlend(
+                isSolid,
+                topProfile,
+                bottomProfile,
+                sketchPlane
+            );
+
+            if (tOffsetFeet >= bOffsetFeet)
+            {
+                blend.TopOffset = tOffsetFeet;
+                blend.BottomOffset = bOffsetFeet;
+            }
+            else
+            {
+                blend.BottomOffset = bOffsetFeet;
+                blend.TopOffset = tOffsetFeet;
+            }
+
+            if (!isSolid)
+            {
+                foreach (var solid in createdSolids)
+                {
+                    try
+                    {
+                        if (SolidSolidCutUtils.CanElementCutElement(blend, solid, out _))
+                        {
+                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, blend);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                createdSolids.Add(blend);
+            }
+
+            if (!string.IsNullOrEmpty(blendDef.Subcategory))
+            {
+                Category? subcat = EnsureSubcategory(doc, blendDef.Subcategory);
+                if (subcat != null)
+                {
+                    try { blend.Subcategory = subcat; } catch { }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(blendDef.MaterialParameter))
+            {
+                string matName = blendDef.MaterialParameter!;
+                FamilyParameter? matFamParam = famMgr.get_Parameter(matName);
+                if (matFamParam == null)
+                {
+                    try
+                    {
+                        matFamParam = famMgr.AddParameter(matName, GroupTypeId.Materials, SpecTypeId.Reference.Material, false);
+                        paramDict[matName] = matFamParam;
+                    }
+                    catch { }
+                }
+                if (matFamParam != null)
+                {
+                    Parameter matParam = blend.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                    if (matParam != null && !matParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(matParam, matFamParam); } catch { }
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(blendDef.VisibilityParameter))
+            {
+                string visName = blendDef.VisibilityParameter!;
+                FamilyParameter? visFamParam = famMgr.get_Parameter(visName);
+                if (visFamParam == null)
+                {
+                    try
+                    {
+                        visFamParam = famMgr.AddParameter(visName, GroupTypeId.Visibility, SpecTypeId.Boolean.YesNo, false);
+                        famMgr.Set(visFamParam, 1);
+                        paramDict[visName] = visFamParam;
+                    }
+                    catch { }
+                }
+                if (visFamParam != null)
+                {
+                    Parameter visParam = blend.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
+                    if (visParam != null && !visParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(visParam, visFamParam); } catch { }
+                    }
+                }
+            }
+        }
+
+        private static void CreateHostSweep(
+            Document doc,
+            Autodesk.Revit.ApplicationServices.Application app,
+            FamilyManager famMgr,
+            SketchPlane sketchPlane,
+            SweepDef sweepDef,
+            Dictionary<string, FamilyParameter> paramDict,
+            List<CombinableElement> createdSolids)
+        {
+            var pathPoints = sweepDef.PathPoints_mm;
+            if (pathPoints == null || pathPoints.Count < 2) return;
+
+            var pts = pathPoints.Select(p => new XYZ(MmToFeet(p.X), MmToFeet(p.Y), MmToFeet(p.Z))).ToList();
+            var modelCurves = new List<ModelCurve>();
+
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                XYZ pA = pts[i];
+                XYZ pB = pts[i + 1];
+                if (pA.DistanceTo(pB) < 0.005) continue;
+
+                XYZ dir = (pB - pA).Normalize();
+                XYZ norm = dir.CrossProduct(XYZ.BasisZ);
+                if (norm.GetLength() < 0.001)
+                {
+                    norm = dir.CrossProduct(XYZ.BasisY);
+                }
+                norm = norm.CrossProduct(dir).Normalize();
+
+                Plane linePlane = Plane.CreateByNormalAndOrigin(norm, pA);
+                SketchPlane lineSketch = SketchPlane.Create(doc, linePlane);
+                Line line = Line.CreateBound(pA, pB);
+                ModelCurve mc = doc.FamilyCreate.NewModelCurve(line, lineSketch);
+                modelCurves.Add(mc);
+            }
+
+            if (modelCurves.Count == 0) return;
+            doc.Regenerate();
+
+            ReferenceArray pathRefArray = new ReferenceArray();
+            foreach (var mc in modelCurves)
+            {
+                Reference? curveRef = mc.GeometryCurve?.Reference;
+                if (curveRef != null)
+                {
+                    pathRefArray.Append(curveRef);
+                }
+                else
+                {
+                    Options opts = new Options { ComputeReferences = true };
+                    GeometryElement geomElem = mc.get_Geometry(opts);
+                    if (geomElem != null)
+                    {
+                        foreach (GeometryObject geomObj in geomElem)
+                        {
+                            if (geomObj is Curve c && c.Reference != null)
+                            {
+                                pathRefArray.Append(c.Reference);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (pathRefArray.Size == 0) return;
+
+            XYZ startPt = pts[0];
+            XYZ tangent = (pts[1] - pts[0]).Normalize();
+            XYZ basisU = tangent.CrossProduct(XYZ.BasisZ);
+            if (basisU.GetLength() < 0.001)
+            {
+                basisU = tangent.CrossProduct(XYZ.BasisY);
+            }
+            basisU = basisU.Normalize();
+            XYZ basisV = tangent.CrossProduct(basisU).Normalize();
+
+            CurveArrArray profileArr = new CurveArrArray();
+            CurveArray profileCurves = new CurveArray();
+
+            string pType = sweepDef.ProfileType?.Trim().ToLowerInvariant() ?? "circle";
+            if (pType == "rectangle")
+            {
+                double w = MmToFeet(sweepDef.ProfileWidth_mm > 0 ? sweepDef.ProfileWidth_mm : 30.0);
+                double h = MmToFeet(sweepDef.ProfileHeight_mm > 0 ? sweepDef.ProfileHeight_mm : 30.0);
+                XYZ c0 = startPt - basisU * (w / 2.0) - basisV * (h / 2.0);
+                XYZ c1 = c0 + basisU * w;
+                XYZ c2 = c1 + basisV * h;
+                XYZ c3 = c0 + basisV * h;
+                profileCurves.Append(Line.CreateBound(c0, c1));
+                profileCurves.Append(Line.CreateBound(c1, c2));
+                profileCurves.Append(Line.CreateBound(c2, c3));
+                profileCurves.Append(Line.CreateBound(c3, c0));
+            }
+            else
+            {
+                double r = MmToFeet(sweepDef.ProfileRadius_mm > 0 ? sweepDef.ProfileRadius_mm : 15.0);
+                XYZ ptTop = startPt + basisV * r;
+                XYZ ptBottom = startPt - basisV * r;
+                XYZ ptRight = startPt + basisU * r;
+                XYZ ptLeft = startPt - basisU * r;
+                profileCurves.Append(Arc.Create(ptTop, ptBottom, ptRight));
+                profileCurves.Append(Arc.Create(ptBottom, ptTop, ptLeft));
+            }
+
+            profileArr.Append(profileCurves);
+            SweepProfile sweepProfile = app.Create.NewCurveLoopsProfile(profileArr);
+
+            bool isSolid = !sweepDef.IsVoid;
+            Sweep sweep = doc.FamilyCreate.NewSweep(
+                isSolid,
+                pathRefArray,
+                sweepProfile,
+                0,
+                ProfilePlaneLocation.Start
+            );
+
+            if (!isSolid)
+            {
+                foreach (var solid in createdSolids)
+                {
+                    try
+                    {
+                        if (SolidSolidCutUtils.CanElementCutElement(sweep, solid, out _))
+                        {
+                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, sweep);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                createdSolids.Add(sweep);
+            }
+
+            if (!string.IsNullOrEmpty(sweepDef.Subcategory))
+            {
+                Category? subcat = EnsureSubcategory(doc, sweepDef.Subcategory);
+                if (subcat != null)
+                {
+                    try { sweep.Subcategory = subcat; } catch { }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(sweepDef.MaterialParameter))
+            {
+                string matName = sweepDef.MaterialParameter!;
+                FamilyParameter? matFamParam = famMgr.get_Parameter(matName);
+                if (matFamParam == null)
+                {
+                    try
+                    {
+                        matFamParam = famMgr.AddParameter(matName, GroupTypeId.Materials, SpecTypeId.Reference.Material, false);
+                        paramDict[matName] = matFamParam;
+                    }
+                    catch { }
+                }
+                if (matFamParam != null)
+                {
+                    Parameter matParam = sweep.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                    if (matParam != null && !matParam.IsReadOnly)
+                    {
+                        try { famMgr.AssociateElementParameterToFamilyParameter(matParam, matFamParam); } catch { }
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(sweepDef.VisibilityParameter))
+            {
+                string visName = sweepDef.VisibilityParameter!;
+                FamilyParameter? visFamParam = famMgr.get_Parameter(visName);
+                if (visFamParam == null)
+                {
+                    try
+                    {
+                        visFamParam = famMgr.AddParameter(visName, GroupTypeId.Visibility, SpecTypeId.Boolean.YesNo, false);
+                        famMgr.Set(visFamParam, 1);
+                        paramDict[visName] = visFamParam;
+                    }
+                    catch { }
+                }
+                if (visFamParam != null)
+                {
+                    Parameter visParam = sweep.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
                     if (visParam != null && !visParam.IsReadOnly)
                     {
                         try { famMgr.AssociateElementParameterToFamilyParameter(visParam, visFamParam); } catch { }

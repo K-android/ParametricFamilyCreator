@@ -370,6 +370,65 @@ namespace ParametricFamilyForge.UI
             }
         }
 
+        private void BtnPreview3D_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string jsonText = TxtJsonPreview.Text.Trim();
+                if (string.IsNullOrWhiteSpace(jsonText))
+                {
+                    MessageBox.Show(this, "JSON Schema is empty. Please synthesize or enter a schema first.", "Schema Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                using var testDoc = JsonDocument.Parse(jsonText);
+
+                string assemblyDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+                string viewerTemplatePath = Path.Combine(assemblyDir, "Resources", "revit-family-viewer.html");
+                string htmlContent;
+
+                if (File.Exists(viewerTemplatePath))
+                {
+                    htmlContent = File.ReadAllText(viewerTemplatePath, System.Text.Encoding.UTF8);
+                }
+                else
+                {
+                    var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                    string resName = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("revit-family-viewer.html", StringComparison.OrdinalIgnoreCase)) ?? "";
+                    if (!string.IsNullOrEmpty(resName))
+                    {
+                        using var s = asm.GetManifestResourceStream(resName);
+                        using var r = new StreamReader(s!);
+                        htmlContent = r.ReadToEnd();
+                    }
+                    else
+                    {
+                        throw new FileNotFoundException("Could not locate 'revit-family-viewer.html' template in Resources.");
+                    }
+                }
+
+                // Inject initial JSON specification into the Three.js viewer
+                string injectedScript = $"window.INITIAL_FAMILY_DATA = {jsonText};";
+                htmlContent = htmlContent.Replace("/* __FAMILY_JSON_INJECTION__ */", injectedScript);
+
+                string tempHtmlPath = Path.Combine(Path.GetTempPath(), $"FamilyForge_3D_{DateTime.Now:yyyyMMdd_HHmmss}.html");
+                File.WriteAllText(tempHtmlPath, htmlContent, System.Text.Encoding.UTF8);
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = tempHtmlPath,
+                    UseShellExecute = true
+                });
+
+                LogMessage($"[3D Orbit] Launched Three.js 3D Interactive Web Viewer in browser: {Path.GetFileName(tempHtmlPath)}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to launch 3D preview: {ex.Message}", "3D Viewer Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                LogMessage($"[3D Viewer Error] {ex.Message}");
+            }
+        }
+
         private void BtnValidate_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -625,6 +684,50 @@ namespace ParametricFamilyForge.UI
                             }
                             list.Add(b);
                         }
+                    }
+                }
+            }
+
+            if (schema.HostBlends != null)
+            {
+                foreach (var bl in schema.HostBlends)
+                {
+                    double minX = Math.Min(Math.Min(bl.BottomMinX_mm, bl.BottomMaxX_mm), Math.Min(bl.TopMinX_mm, bl.TopMaxX_mm));
+                    double maxX = Math.Max(Math.Max(bl.BottomMinX_mm, bl.BottomMaxX_mm), Math.Max(bl.TopMinX_mm, bl.TopMaxX_mm));
+                    double minY = Math.Min(Math.Min(bl.BottomMinY_mm, bl.BottomMaxY_mm), Math.Min(bl.TopMinY_mm, bl.TopMaxY_mm));
+                    double maxY = Math.Max(Math.Max(bl.BottomMinY_mm, bl.BottomMaxY_mm), Math.Max(bl.TopMinY_mm, bl.TopMaxY_mm));
+                    list.Add(new ExtrusionBounds
+                    {
+                        Name = bl.Name,
+                        ProfileType = bl.TopProfileType,
+                        IsNested = false,
+                        MinX = minX, MaxX = maxX,
+                        MinY = minY, MaxY = maxY,
+                        MinZ = Math.Min(bl.BottomOffset_mm, bl.TopOffset_mm),
+                        MaxZ = Math.Max(bl.BottomOffset_mm, bl.TopOffset_mm)
+                    });
+                }
+            }
+
+            if (schema.HostSweeps != null)
+            {
+                foreach (var sw in schema.HostSweeps)
+                {
+                    if (sw.PathPoints_mm != null && sw.PathPoints_mm.Count > 0)
+                    {
+                        double pad = sw.ProfileRadius_mm > 0 ? sw.ProfileRadius_mm : Math.Max(sw.ProfileWidth_mm, sw.ProfileHeight_mm) / 2.0;
+                        list.Add(new ExtrusionBounds
+                        {
+                            Name = sw.Name,
+                            ProfileType = sw.ProfileType,
+                            IsNested = false,
+                            MinX = sw.PathPoints_mm.Min(p => p.X) - pad,
+                            MaxX = sw.PathPoints_mm.Max(p => p.X) + pad,
+                            MinY = sw.PathPoints_mm.Min(p => p.Y) - pad,
+                            MaxY = sw.PathPoints_mm.Max(p => p.Y) + pad,
+                            MinZ = sw.PathPoints_mm.Min(p => p.Z) - pad,
+                            MaxZ = sw.PathPoints_mm.Max(p => p.Z) + pad
+                        });
                     }
                 }
             }

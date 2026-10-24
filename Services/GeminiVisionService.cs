@@ -67,14 +67,12 @@ DEEP VISUAL & MULTIMODAL CONTEXT ANALYSIS RULES:
    - For Furniture & Countertops:
      * Use 'profile_type: RoundedRectangle' with 'corner_radius_mm' (e.g. 25-50mm) for smooth filleted desktop corners, or 'Oval' / 'Cylinder' for round tables.
 
-3. SUPPORTED PROFILE TYPES:
-   - 'Rectangle': standard rectangular profile.
-   - 'RoundedRectangle': filleted rectangle with smooth corner arcs (specify 'corner_radius_mm').
-   - 'Cylinder': circle/tube (specify 'radius_mm' or min_x/max_x).
-   - 'Oval' or 'Ellipse': smooth closed ellipse for oval bowls, sinks, tables.
-   - 'DShape' or 'Basin': flat rear edge against the wall, curved front bow for wash basins, sinks, toilets, vanities, curved reception counters.
-   - 'HollowBox': outer rectangle with inner hollow core (specify 'wall_thickness_mm').
-   - 'is_void': set to true on any extrusion to make it a VOID that carves out openings, cavities, inner bowls, or holes in solid geometry.
+3. SUPPORTED PROFILE & GEOMETRY TYPES:
+   - Extrusion Profile Types: 'Rectangle', 'RoundedRectangle' (with 'corner_radius_mm'), 'Cylinder', 'Oval' / 'Ellipse', 'DShape' / 'Basin', 'HollowBox'.
+   - 'is_void': set to true on any extrusion, blend, or sweep to make it a VOID that carves out openings, cavities, inner bowls, or holes in solid geometry.
+   - 'host_blends': for tapering shapes (e.g. half-pedestals, conical bases, pyramid plinths) transitioning smoothly between bottom and top profiles.
+   - 'host_sweeps': for sweeping a profile along a 3D path curve ('path_points_mm': sequence of 3D points) for curved faucet spouts, grab bars, towel rails, moldings.
+   - 'subcategories': list of BIM subcategory names (e.g. 'Bowl', 'Pedestal', 'Hardware', 'Glazing') and assign 'subcategory' to geometry.
 
 4. INPUT PRIORITY & UNIT CONVERSION:
    - If the user provides BOTH a prompt and a PDF/image: combine the visual geometry and context from the PDF/image with the user's prompt, letting explicit numbers in the user's prompt override specific dimensions.
@@ -1887,6 +1885,9 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 FamilyCategory = "Plumbing Fixtures",
                 TemplateName = "Metric Plumbing Fixture.rft",
                 Description = "High-fidelity parametric architectural wash basin with hollow inner bowl, faucet cutout, drain, and half-pedestal shroud.",
+                Subcategories = new List<string> { "Basin", "Pedestal", "Hardware" },
+                HostBlends = new List<BlendDef>(),
+                HostSweeps = new List<SweepDef>(),
                 MasterParameters = new List<MasterParameterDef>
                 {
                     new() { Name = "Width", DataType = "Length", DefaultValueMm = width },
@@ -1919,7 +1920,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         WidthParameter = "Width",
                         DepthParameter = "Depth",
                         HeightParameter = "Height",
-                        MaterialParameter = "Ceramic_Material"
+                        MaterialParameter = "Ceramic_Material",
+                        Subcategory = "Basin"
                     },
                     // 2. Inner Hollow Basin Bowl (VOID Extrusion: Carves out the bowl cavity!)
                     new()
@@ -1932,7 +1934,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MinY_mm = -depth + 35.0,
                         MaxY_mm = -75.0, // leaves rear tap deck platform
                         StartZ_mm = basinTopZ - bowlDepth,
-                        EndZ_mm = basinTopZ + 10.0 // cuts through the top face cleanly
+                        EndZ_mm = basinTopZ + 10.0,
+                        Subcategory = "Basin"
                     },
                     // 3. Faucet Tap Hole (VOID Extrusion: 35mm dia tap hole on rear deck)
                     new()
@@ -1966,7 +1969,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 NestedFamilies = new List<NestedFamilyDef>()
             };
 
-            // 5. Half-Pedestal or Full-Pedestal Shroud
+            // 5. Half-Pedestal or Full-Pedestal Shroud (Smooth Tapering Blend)
             if (hasPedestal)
             {
                 double pedW = Math.Min(220.0, width * 0.40);
@@ -1974,16 +1977,26 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 double pedStartZ = isHalfPedestal ? Math.Max(50.0, basinBottomZ - 260.0) : 0;
                 double pedEndZ = basinBottomZ + 10.0; // joins seamlessly into basin underside
 
-                schema.HostExtrusions.Add(new ExtrusionDef
+                double taper = isHalfPedestal ? 0.65 : 0.85;
+                double botW = pedW * taper;
+                double botD = pedD * taper;
+
+                schema.HostBlends.Add(new BlendDef
                 {
-                    Name = isHalfPedestal ? "Half_Pedestal_Shroud" : "Full_Pedestal_Column",
-                    ProfileType = "DShape",
-                    MinX_mm = -pedW / 2.0,
-                    MaxX_mm = pedW / 2.0,
-                    MinY_mm = -pedD,
-                    MaxY_mm = 0,
-                    StartZ_mm = pedStartZ,
-                    EndZ_mm = pedEndZ,
+                    Name = isHalfPedestal ? "Half_Pedestal_Tapered_Shroud" : "Full_Pedestal_Tapered_Column",
+                    BottomProfileType = "DShape",
+                    TopProfileType = "DShape",
+                    BottomMinX_mm = -botW / 2.0,
+                    BottomMaxX_mm = botW / 2.0,
+                    BottomMinY_mm = -botD,
+                    BottomMaxY_mm = 0,
+                    TopMinX_mm = -pedW / 2.0,
+                    TopMaxX_mm = pedW / 2.0,
+                    TopMinY_mm = -pedD,
+                    TopMaxY_mm = 0,
+                    BottomOffset_mm = pedStartZ,
+                    TopOffset_mm = pedEndZ,
+                    Subcategory = "Pedestal",
                     MaterialParameter = "Ceramic_Material"
                 });
             }
@@ -2034,6 +2047,23 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     }
                 },
                 PlacementOffsetMm = new VectorOffsetDef(0, -40, basinTopZ)
+            });
+
+            // 7. Architectural Curved Faucet Spout (3D Sweep)
+            schema.HostSweeps.Add(new SweepDef
+            {
+                Name = "Chrome_Mixer_Tap_Spout",
+                ProfileType = "Circle",
+                ProfileRadius_mm = 11.0,
+                PathPoints_mm = new List<VectorOffsetDef>
+                {
+                    new(0, -40, basinTopZ),
+                    new(0, -40, basinTopZ + 75),
+                    new(0, -65, basinTopZ + 90),
+                    new(0, -100, basinTopZ + 70)
+                },
+                Subcategory = "Hardware",
+                MaterialParameter = "Chrome_Finish"
             });
 
             return schema;

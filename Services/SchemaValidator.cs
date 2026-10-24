@@ -14,6 +14,8 @@ namespace ParametricFamilyForge.Services
         public List<string> Warnings { get; } = new();
         public int ParameterCount { get; set; }
         public int ExtrusionCount { get; set; }
+        public int BlendCount { get; set; }
+        public int SweepCount { get; set; }
         public int NestedFamilyCount { get; set; }
         public int TypeCount { get; set; }
         public int ReferencePlaneCount { get; set; }
@@ -23,7 +25,10 @@ namespace ParametricFamilyForge.Services
             get
             {
                 string status = IsValid ? "✅ VALID" : "❌ INVALID";
-                return $"{status} | {ParameterCount} Parameters, {ExtrusionCount} Extrusions, {NestedFamilyCount} Nested, {TypeCount} Types";
+                string geomDetails = $"{ExtrusionCount} Extrusions";
+                if (BlendCount > 0) geomDetails += $", {BlendCount} Blends";
+                if (SweepCount > 0) geomDetails += $", {SweepCount} Sweeps";
+                return $"{status} | {ParameterCount} Parameters, {geomDetails}, {NestedFamilyCount} Nested, {TypeCount} Types";
             }
         }
     }
@@ -95,14 +100,18 @@ namespace ParametricFamilyForge.Services
                 }
             }
 
-            // 3. Validate Geometry Extrusions
+            // 3. Validate Geometry Extrusions, Blends, and Sweeps
             int totalExtrusions = schema.HostExtrusions?.Count ?? 0;
+            int totalBlends = schema.HostBlends?.Count ?? 0;
+            int totalSweeps = schema.HostSweeps?.Count ?? 0;
             report.ExtrusionCount = totalExtrusions;
+            report.BlendCount = totalBlends;
+            report.SweepCount = totalSweeps;
             report.NestedFamilyCount = schema.NestedFamilies?.Count ?? 0;
 
-            if (totalExtrusions == 0 && report.NestedFamilyCount == 0)
+            if (totalExtrusions == 0 && totalBlends == 0 && totalSweeps == 0 && report.NestedFamilyCount == 0)
             {
-                report.Warnings.Add("The family has 0 host extrusions and 0 nested families. A hollow family will be produced.");
+                report.Warnings.Add("The family has 0 host extrusions, blends, sweeps, and nested families. A hollow family will be produced.");
             }
 
             if (schema.HostExtrusions != null)

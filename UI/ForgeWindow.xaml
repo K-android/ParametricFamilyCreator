@@ -290,6 +290,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Revit Family Specification (JSON)" FontWeight="SemiBold" Foreground="#61AFEF" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="BtnPreview3D" Content="👁️ 3D Web Orbit" ToolTip="Launch interactive Three.js 3D Web Viewer with Orbit Controls" Click="BtnPreview3D_Click" Background="#2C313A" BorderBrush="#98C379" BorderThickness="1" Foreground="#98C379" Margin="0,0,4,0" Padding="8,4" FontSize="11" />
                             <Button x:Name="BtnImportJson" Content="📂 Import" ToolTip="Import custom FamilySchema JSON from disk" Click="BtnImportJson_Click" Background="#3E4451" Margin="0,0,4,0" Padding="8,4" FontSize="11" />
                             <Button x:Name="BtnExportJson" Content="💾 Save" ToolTip="Save current FamilySchema JSON to disk" Click="BtnExportJson_Click" Background="#3E4451" Margin="0,0,4,0" Padding="8,4" FontSize="11" />
                             <Button x:Name="BtnExportCsv" Content="📊 CSV Catalog" ToolTip="Export Revit Type Catalog schedule (.csv/.txt)" Click="BtnExportCsv_Click" Background="#3E4451" Margin="0,0,4,0" Padding="8,4" FontSize="11" />

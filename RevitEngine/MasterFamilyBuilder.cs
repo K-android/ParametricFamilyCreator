@@ -86,7 +86,8 @@ namespace ParametricFamilyForge.RevitEngine
             FamilySchema schema,
             Dictionary<string, string> nestedRfaPaths,
             string templateDirectoryPath,
-            string outputDirectoryPath)
+            string outputDirectoryPath,
+            Action<string>? onLog = null)
         {
             if (uiApp == null) throw new ArgumentNullException(nameof(uiApp));
             if (schema == null) throw new ArgumentNullException(nameof(schema));
@@ -275,19 +276,22 @@ namespace ParametricFamilyForge.RevitEngine
                 }
 
                 var createdSolids = new List<CombinableElement>();
+                var createdVoids = new List<CombinableElement>();
+
                 if (schema.HostExtrusions != null)
                 {
                     foreach (var extDef in schema.HostExtrusions)
                     {
                         try
                         {
-                            CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict, createdSolids);
+                            CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict, createdSolids, createdVoids, onLog);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            onLog?.Invoke($"[Geometry Error] Extrusion '{extDef.Name}': {ex.Message}");
+                        }
                     }
                 }
-
-                masterDoc.Regenerate();
 
                 // 4b. Create Host Blends (tapered pedestals, transitions)
                 if (schema.HostBlends != null)
@@ -296,9 +300,12 @@ namespace ParametricFamilyForge.RevitEngine
                     {
                         try
                         {
-                            CreateHostBlend(masterDoc, uiApp.Application, famMgr, sketchPlane, blendDef, paramDict, createdSolids);
+                            CreateHostBlend(masterDoc, uiApp.Application, famMgr, sketchPlane, blendDef, paramDict, createdSolids, createdVoids, onLog);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            onLog?.Invoke($"[Geometry Error] Blend '{blendDef.Name}': {ex.Message}");
+                        }
                     }
                 }
 
@@ -309,13 +316,55 @@ namespace ParametricFamilyForge.RevitEngine
                     {
                         try
                         {
-                            CreateHostSweep(masterDoc, uiApp.Application, famMgr, sketchPlane, sweepDef, paramDict, createdSolids);
+                            CreateHostSweep(masterDoc, uiApp.Application, famMgr, sketchPlane, sweepDef, paramDict, createdSolids, createdVoids, onLog);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            onLog?.Invoke($"[Geometry Error] Sweep '{sweepDef.Name}': {ex.Message}");
+                        }
                     }
                 }
 
+                // Update geometry BRep in Revit's engine BEFORE applying boolean cuts
                 masterDoc.Regenerate();
+
+                // 4c-ii. Dedicated Boolean Void Cut Pass: carve out inner bowl cavities, tap holes, drain holes
+                if (createdVoids.Count > 0 && createdSolids.Count > 0)
+                {
+                    onLog?.Invoke($"[REVIT ENGINE] Applying boolean void cuts ({createdVoids.Count} void(s) against {createdSolids.Count} solid(s))...");
+                    foreach (var voidElem in createdVoids)
+                    {
+                        foreach (var solidElem in createdSolids)
+                        {
+                            try
+                            {
+                                if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out CutFailureReason reason))
+                                {
+                                    SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
+                                    onLog?.Invoke($"[Void Cut SUCCESS] '{voidElem.Name}' cleanly cut solid '{solidElem.Name}'.");
+                                }
+                                else
+                                {
+                                    // Try fallback direct cut: CanElementCutElement can sometimes report non-intersection on tangential faces
+                                    try
+                                    {
+                                        SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
+                                        onLog?.Invoke($"[Void Cut SUCCESS (Direct)] '{voidElem.Name}' cut solid '{solidElem.Name}'.");
+                                    }
+                                    catch (Exception directEx)
+                                    {
+                                        onLog?.Invoke($"[Void Cut Info] Void '{voidElem.Name}' did not cut '{solidElem.Name}': {directEx.Message} (Reason: {reason})");
+                                    }
+                                }
+                            }
+                            catch (Exception cutEx)
+                            {
+                                onLog?.Invoke($"[Void Cut Warning] Cut failed between '{solidElem.Name}' and '{voidElem.Name}': {cutEx.Message}");
+                            }
+                        }
+                    }
+                    masterDoc.Regenerate();
+                }
 
                 // 4d. Create Wall / Ceiling Opening Cuts (for Doors, Windows, hosted penetrations)
                 CreateHostOpenings(masterDoc, schema.HostOpenings);
@@ -337,10 +386,13 @@ namespace ParametricFamilyForge.RevitEngine
                         {
                             if (nestedRfaPaths.TryGetValue(nestedDef.NestedFamilyName, out string? nestedRfaPath) && File.Exists(nestedRfaPath))
                             {
-                                PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath, paramDict);
+                                PlaceAndBindNestedFamily(masterDoc, famMgr, nestedDef, nestedRfaPath, paramDict, onLog);
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            onLog?.Invoke($"[Nested Component Error] '{nestedDef.NestedFamilyName}': {ex.Message}");
+                        }
                     }
                 }
 
@@ -749,7 +801,9 @@ namespace ParametricFamilyForge.RevitEngine
             SketchPlane sketchPlane,
             ExtrusionDef extDef,
             Dictionary<string, FamilyParameter> paramDict,
-            List<CombinableElement> createdSolids)
+            List<CombinableElement> createdSolids,
+            List<CombinableElement> createdVoids,
+            Action<string>? onLog = null)
         {
             double minX = MmToFeet(extDef.MinX_mm);
             double maxX = MmToFeet(extDef.MaxX_mm);
@@ -774,26 +828,6 @@ namespace ParametricFamilyForge.RevitEngine
                 extrusionHeight
             );
 
-            if (!isSolid)
-            {
-                // Carve out hollow cavities in intersecting solids (e.g. inner wash basin bowl, drain hole, tap hole)
-                foreach (var solid in createdSolids)
-                {
-                    try
-                    {
-                        if (SolidSolidCutUtils.CanElementCutElement(extrusion, solid, out _))
-                        {
-                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, extrusion);
-                        }
-                    }
-                    catch { }
-                }
-            }
-            else
-            {
-                createdSolids.Add(extrusion);
-            }
-
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);
 
@@ -804,6 +838,17 @@ namespace ParametricFamilyForge.RevitEngine
             if (endParam != null && !endParam.IsReadOnly)
             {
                 endParam.Set(endZ);
+            }
+
+            if (!isSolid)
+            {
+                createdVoids.Add(extrusion);
+                onLog?.Invoke($"[Host Extrusion] Created VOID '{extDef.Name}' ({extDef.ProfileType}) Z:[{extDef.StartZ_mm:0}..{extDef.EndZ_mm:0}]mm");
+            }
+            else
+            {
+                createdSolids.Add(extrusion);
+                onLog?.Invoke($"[Host Extrusion] Created SOLID '{extDef.Name}' ({extDef.ProfileType}) Z:[{extDef.StartZ_mm:0}..{extDef.EndZ_mm:0}]mm");
             }
 
             // Link height parameter if specified
@@ -1041,7 +1086,9 @@ namespace ParametricFamilyForge.RevitEngine
             SketchPlane sketchPlane,
             BlendDef blendDef,
             Dictionary<string, FamilyParameter> paramDict,
-            List<CombinableElement> createdSolids)
+            List<CombinableElement> createdSolids,
+            List<CombinableElement> createdVoids,
+            Action<string>? onLog = null)
         {
             double bMinX = MmToFeet(blendDef.BottomMinX_mm);
             double bMaxX = MmToFeet(blendDef.BottomMaxX_mm);
@@ -1087,21 +1134,13 @@ namespace ParametricFamilyForge.RevitEngine
 
             if (!isSolid)
             {
-                foreach (var solid in createdSolids)
-                {
-                    try
-                    {
-                        if (SolidSolidCutUtils.CanElementCutElement(blend, solid, out _))
-                        {
-                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, blend);
-                        }
-                    }
-                    catch { }
-                }
+                createdVoids.Add(blend);
+                onLog?.Invoke($"[Host Blend] Created VOID '{blendDef.Name}' Z:[{blendDef.BottomOffset_mm:0}..{blendDef.TopOffset_mm:0}]mm");
             }
             else
             {
                 createdSolids.Add(blend);
+                onLog?.Invoke($"[Host Blend] Created SOLID '{blendDef.Name}' Z:[{blendDef.BottomOffset_mm:0}..{blendDef.TopOffset_mm:0}]mm");
             }
 
             if (!string.IsNullOrEmpty(blendDef.Subcategory))
@@ -1168,7 +1207,9 @@ namespace ParametricFamilyForge.RevitEngine
             SketchPlane sketchPlane,
             SweepDef sweepDef,
             Dictionary<string, FamilyParameter> paramDict,
-            List<CombinableElement> createdSolids)
+            List<CombinableElement> createdSolids,
+            List<CombinableElement> createdVoids,
+            Action<string>? onLog = null)
         {
             var pathPoints = sweepDef.PathPoints_mm;
             if (pathPoints == null || pathPoints.Count < 2) return;
@@ -1226,7 +1267,11 @@ namespace ParametricFamilyForge.RevitEngine
                 }
             }
 
-            if (pathRefArray.Size == 0) return;
+            if (pathRefArray.Size == 0)
+            {
+                onLog?.Invoke($"[Host Sweep Warning] Could not obtain geometry references for sweep path '{sweepDef.Name}'.");
+                return;
+            }
 
             XYZ startPt = pts[0];
             XYZ tangent = (pts[1] - pts[0]).Normalize();
@@ -1280,21 +1325,13 @@ namespace ParametricFamilyForge.RevitEngine
 
             if (!isSolid)
             {
-                foreach (var solid in createdSolids)
-                {
-                    try
-                    {
-                        if (SolidSolidCutUtils.CanElementCutElement(sweep, solid, out _))
-                        {
-                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, sweep);
-                        }
-                    }
-                    catch { }
-                }
+                createdVoids.Add(sweep);
+                onLog?.Invoke($"[Host Sweep] Created VOID '{sweepDef.Name}'");
             }
             else
             {
                 createdSolids.Add(sweep);
+                onLog?.Invoke($"[Host Sweep] Created SOLID '{sweepDef.Name}'");
             }
 
             if (!string.IsNullOrEmpty(sweepDef.Subcategory))
@@ -1583,16 +1620,47 @@ namespace ParametricFamilyForge.RevitEngine
         }
 
 
+        private class ForgeFamilyLoadOptions : IFamilyLoadOptions
+        {
+            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+            {
+                overwriteParameterValues = true;
+                return true;
+            }
+
+            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+            {
+                source = FamilySource.Family;
+                overwriteParameterValues = true;
+                return true;
+            }
+        }
+
         private static void PlaceAndBindNestedFamily(
             Document masterDoc,
             FamilyManager famMgr,
             NestedFamilyDef nestedDef,
             string nestedRfaPath,
-            Dictionary<string, FamilyParameter> paramDict)
+            Dictionary<string, FamilyParameter> paramDict,
+            Action<string>? onLog = null)
         {
             Family? loadedNestedFamily = null;
-            bool loaded = masterDoc.LoadFamily(nestedRfaPath, out loadedNestedFamily);
-            if (!loaded && loadedNestedFamily == null)
+            try
+            {
+                bool loaded = masterDoc.LoadFamily(nestedRfaPath, new ForgeFamilyLoadOptions(), out loadedNestedFamily);
+                onLog?.Invoke($"[Nested Component] LoadFamily '{nestedDef.NestedFamilyName}' -> {(loaded ? "Loaded" : "Resolved")}");
+            }
+            catch (Exception ex)
+            {
+                onLog?.Invoke($"[Nested Component Info] LoadFamily '{nestedDef.NestedFamilyName}': {ex.Message}");
+            }
+
+            if (!File.Exists(nestedRfaPath))
+            {
+                onLog?.Invoke($"[Nested Component Warning] Nested file not found on disk: {nestedRfaPath}");
+            }
+
+            if (loadedNestedFamily == null)
             {
                 loadedNestedFamily = new FilteredElementCollector(masterDoc)
                     .OfClass(typeof(Family))
@@ -1600,7 +1668,11 @@ namespace ParametricFamilyForge.RevitEngine
                     .FirstOrDefault(f => f.Name.Equals(nestedDef.NestedFamilyName, StringComparison.OrdinalIgnoreCase));
             }
 
-            if (loadedNestedFamily == null) return;
+            if (loadedNestedFamily == null)
+            {
+                onLog?.Invoke($"[Nested Component Error] Family '{nestedDef.NestedFamilyName}' not found in master document.");
+                return;
+            }
 
             var symbolIds = loadedNestedFamily.GetFamilySymbolIds();
             FamilySymbol? symbol = null;
@@ -1618,7 +1690,11 @@ namespace ParametricFamilyForge.RevitEngine
                     .FirstOrDefault(s => s.Family != null && s.Family.Id == loadedNestedFamily.Id);
             }
 
-            if (symbol == null) return;
+            if (symbol == null)
+            {
+                onLog?.Invoke($"[Nested Component Error] No FamilySymbol found in family '{nestedDef.NestedFamilyName}'.");
+                return;
+            }
 
             if (!symbol.IsActive)
             {
@@ -1632,11 +1708,21 @@ namespace ParametricFamilyForge.RevitEngine
                 MmToFeet(nestedDef.PlacementOffsetMm.Z)
             );
 
-            FamilyInstance nestedInstance = masterDoc.FamilyCreate.NewFamilyInstance(
-                origin,
-                symbol,
-                Autodesk.Revit.DB.Structure.StructuralType.NonStructural
-            );
+            FamilyInstance nestedInstance;
+            try
+            {
+                nestedInstance = masterDoc.FamilyCreate.NewFamilyInstance(
+                    origin,
+                    symbol,
+                    Autodesk.Revit.DB.Structure.StructuralType.NonStructural
+                );
+                onLog?.Invoke($"[Nested Component SUCCESS] Placed '{nestedDef.NestedFamilyName}' at ({nestedDef.PlacementOffsetMm.X:0}, {nestedDef.PlacementOffsetMm.Y:0}, {nestedDef.PlacementOffsetMm.Z:0})mm.");
+            }
+            catch (Exception ex)
+            {
+                onLog?.Invoke($"[Nested Component Error] NewFamilyInstance failed for '{nestedDef.NestedFamilyName}': {ex.Message}");
+                return;
+            }
 
             // Parameter Association
             foreach (var kvp in nestedDef.ParameterBindings)

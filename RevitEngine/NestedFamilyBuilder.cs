@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -176,13 +176,36 @@ namespace ParametricFamilyForge.RevitEngine
 
                 // 3. Build sub-extrusions
                 var createdSolids = new System.Collections.Generic.List<CombinableElement>();
+                var createdVoids = new System.Collections.Generic.List<CombinableElement>();
                 if (nestedDef.SubExtrusions != null)
                 {
                     foreach (var extrusionDef in nestedDef.SubExtrusions)
                     {
                         try
                         {
-                            CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef, createdSolids);
+                            CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef, createdSolids, createdVoids);
+                        }
+                        catch { }
+                    }
+                }
+
+                familyDoc.Regenerate();
+
+                // 4. Boolean Cut Pass: Ensure all void cavities cut intersecting solids
+                foreach (var voidElem in createdVoids)
+                {
+                    foreach (var solidElem in createdSolids)
+                    {
+                        try
+                        {
+                            if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out _))
+                            {
+                                SolidSolidCutUtils.AddCutBetweenSolids(familyDoc, solidElem, voidElem);
+                            }
+                            else
+                            {
+                                try { SolidSolidCutUtils.AddCutBetweenSolids(familyDoc, solidElem, voidElem); } catch { }
+                            }
                         }
                         catch { }
                     }
@@ -205,7 +228,7 @@ namespace ParametricFamilyForge.RevitEngine
             return tempRfaPath;
         }
 
-        private static void CreateSubExtrusion(Document familyDoc, FamilyManager famMgr, SketchPlane sketchPlane, ExtrusionDef extDef, System.Collections.Generic.List<CombinableElement> createdSolids)
+        private static void CreateSubExtrusion(Document familyDoc, FamilyManager famMgr, SketchPlane sketchPlane, ExtrusionDef extDef, System.Collections.Generic.List<CombinableElement> createdSolids, System.Collections.Generic.List<CombinableElement> createdVoids)
         {
             double minX = MmToFeet(extDef.MinX_mm);
             double maxX = MmToFeet(extDef.MaxX_mm);
@@ -230,25 +253,6 @@ namespace ParametricFamilyForge.RevitEngine
                 extrusionHeight
             );
 
-            if (!isSolid)
-            {
-                foreach (var solid in createdSolids)
-                {
-                    try
-                    {
-                        if (SolidSolidCutUtils.CanElementCutElement(extrusion, solid, out _))
-                        {
-                            SolidSolidCutUtils.AddCutBetweenSolids(familyDoc, solid, extrusion);
-                        }
-                    }
-                    catch { }
-                }
-            }
-            else
-            {
-                createdSolids.Add(extrusion);
-            }
-
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);
 
@@ -259,6 +263,15 @@ namespace ParametricFamilyForge.RevitEngine
             if (endParam != null && !endParam.IsReadOnly)
             {
                 endParam.Set(endZ);
+            }
+
+            if (!isSolid)
+            {
+                createdVoids.Add(extrusion);
+            }
+            else
+            {
+                createdSolids.Add(extrusion);
             }
 
             // Link height parameter if specified

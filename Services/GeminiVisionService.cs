@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -807,30 +807,72 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 if (schema.ReferencePlanes.Count == 0)
                     schema.ReferencePlanes = enriched.ReferencePlanes;
 
-                schema.HostExtrusions = enriched.HostExtrusions;
-                schema.NestedFamilies = enriched.NestedFamilies;
+                CopyEnrichedGeometry(schema, enriched);
             }
 
             // Architectural Realism Guard for Basins & Sinks:
-            // If the model classified the product as a basin/sink/plumbing fixture, but only returned flat rectangular boxes without any curves or void cavities,
-            // upgrade the geometry to use DShape outer rim, hollow recessed inner bowl void, tap hole, and drain cutouts!
+            // Ensure every basin/sink family features realistic curved profiles, under-bowl taper blend, pedestal shroud, hollow inner bowl, tap cutout, waste drain, and chrome mixer faucet!
             string lowerName = $"{schema.MasterFamilyName} {schema.FamilyCategory} {userPrompt}".ToLowerInvariant();
             bool isBasinType = lowerName.Contains("basin") || lowerName.Contains("sink") || lowerName.Contains("lavatory");
-            if (isBasinType && schema.HostExtrusions.Count > 0 && !schema.HostExtrusions.Any(e => e.IsVoid))
+            if (isBasinType && (schema.HostExtrusions.Count <= 2 || !schema.HostExtrusions.Any(e => e.IsVoid) || schema.HostBlends.Count == 0))
             {
-                double maxW = schema.HostExtrusions.Max(e => Math.Abs(e.MaxX_mm - e.MinX_mm));
-                double maxD = schema.HostExtrusions.Max(e => Math.Abs(e.MaxY_mm - e.MinY_mm));
-                double topZ = schema.HostExtrusions.Max(e => Math.Max(e.StartZ_mm, e.EndZ_mm));
+                double maxW = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Abs(e.MaxX_mm - e.MinX_mm)) : 545;
+                double maxD = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Abs(e.MaxY_mm - e.MinY_mm)) : 410;
+                double topZ = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Max(e.StartZ_mm, e.EndZ_mm)) : 850;
 
-                double w = aiW >= 50 ? aiW : (maxW >= 50 ? maxW : 550);
-                double d = aiD >= 50 ? aiD : (maxD >= 50 ? maxD : 420);
-                double h = aiH >= 50 ? aiH : (topZ >= 50 ? topZ : 450);
+                double w = aiW >= 50 ? aiW : (maxW >= 50 ? maxW : 545);
+                double d = aiD >= 50 ? aiD : (maxD >= 50 ? maxD : 410);
+                double h = aiH >= 50 ? aiH : (topZ >= 50 ? topZ : 850);
 
                 var realisticBasin = CreateBasinSchema(w, d, h, aiT, $"{userPrompt} {schema.MasterFamilyName}");
-                schema.HostExtrusions = realisticBasin.HostExtrusions;
-                if (schema.NestedFamilies.Count == 0)
+                CopyEnrichedGeometry(schema, realisticBasin);
+            }
+        }
+
+        /// <summary>
+        /// Deeply copies all enriched 3D solids, blends, sweeps, host openings, 2D linework, and MEP connectors.
+        /// </summary>
+        private static void CopyEnrichedGeometry(FamilySchema target, FamilySchema source)
+        {
+            if (source == null || target == null) return;
+            target.HostExtrusions = source.HostExtrusions;
+            target.HostBlends = source.HostBlends;
+            target.HostSweeps = source.HostSweeps;
+            target.HostOpenings = source.HostOpenings;
+            target.SymbolicCurves = source.SymbolicCurves;
+            target.MepConnectors = source.MepConnectors;
+            if (source.NestedFamilies != null && source.NestedFamilies.Count > 0)
+            {
+                target.NestedFamilies = source.NestedFamilies;
+            }
+            if (source.MasterParameters != null && source.MasterParameters.Count > 0)
+            {
+                foreach (var p in source.MasterParameters)
                 {
-                    schema.NestedFamilies = realisticBasin.NestedFamilies;
+                    if (!target.MasterParameters.Any(tp => tp.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        target.MasterParameters.Add(p);
+                    }
+                }
+            }
+            if (source.ReferencePlanes != null && source.ReferencePlanes.Count > 0)
+            {
+                foreach (var rp in source.ReferencePlanes)
+                {
+                    if (!target.ReferencePlanes.Any(trp => trp.Name.Equals(rp.Name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        target.ReferencePlanes.Add(rp);
+                    }
+                }
+            }
+            if (source.Subcategories != null && source.Subcategories.Count > 0)
+            {
+                foreach (var sub in source.Subcategories)
+                {
+                    if (!target.Subcategories.Any(ts => ts.Equals(sub, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        target.Subcategories.Add(sub);
+                    }
                 }
             }
         }
@@ -1869,22 +1911,24 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             double halfW = width / 2.0;
             string lower = promptOrDoc.ToLowerInvariant();
-            bool hasPedestal = lower.Contains("pedestal") || lower.Contains("shroud") || lower.Contains("trap");
+            bool hasPedestal = lower.Contains("pedestal") || lower.Contains("shroud") || lower.Contains("trap") || lower.Contains("rak") || lower.Contains("basin");
             bool isHalfPedestal = lower.Contains("half") || lower.Contains("semi") || lower.Contains("wall hung") || lower.Contains("wall-hung") || (!lower.Contains("full pedestal"));
             bool isOval = lower.Contains("oval") || lower.Contains("ellipse") || lower.Contains("round");
 
             string rimProfile = isOval ? "Oval" : "DShape";
-            double basinBodyHeight = Math.Min(180.0, height * 0.45);
+            double basinBodyHeight = Math.Min(195.0, height * 0.45);
             double basinTopZ = height;
             double basinBottomZ = height - basinBodyHeight;
-            double bowlDepth = Math.Min(150.0, basinBodyHeight - 20.0);
+            double rimDeckThk = 35.0;
+            double rimDeckStartZ = basinTopZ - rimDeckThk;
+            double bowlDepth = Math.Min(145.0, basinBodyHeight - 25.0);
 
             var schema = new FamilySchema
             {
                 MasterFamilyName = familyName,
                 FamilyCategory = "Plumbing Fixtures",
                 TemplateName = "Metric Plumbing Fixture.rft",
-                Description = "High-fidelity parametric architectural wash basin with hollow inner bowl, faucet cutout, drain, and half-pedestal shroud.",
+                Description = "High-fidelity architectural wash basin with curved under-bowl transition, hollow inner bowl, faucet cutout, chrome mixer tap, and half-pedestal shroud.",
                 Subcategories = new List<string> { "Basin", "Pedestal", "Hardware" },
                 HostBlends = new List<BlendDef>(),
                 HostSweeps = new List<SweepDef>(),
@@ -1893,7 +1937,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     new() { Name = "Width", DataType = "Length", DefaultValueMm = width },
                     new() { Name = "Depth", DataType = "Length", DefaultValueMm = depth },
                     new() { Name = "Height", DataType = "Length", DefaultValueMm = height },
-                    new() { Name = "Rim_Thickness", DataType = "Length", DefaultValueMm = rimThk > 0 ? rimThk : 25.0 },
+                    new() { Name = "Rim_Thickness", DataType = "Length", DefaultValueMm = rimThk > 0 ? rimThk : rimDeckThk },
                     new() { Name = "Bowl_Depth", DataType = "Length", DefaultValueMm = bowlDepth }
                 },
                 ReferencePlanes = new List<ReferencePlaneDef>
@@ -1906,16 +1950,16 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
-                    // 1. Outer Ceramic Basin Body (Smooth D-Shape or Oval)
+                    // 1. Ceramic Upper Rim Deck (Flat rear faucet ledge + bow-front rim perimeter)
                     new()
                     {
-                        Name = "Basin_Outer_Rim",
+                        Name = "Basin_Upper_Rim_Deck",
                         ProfileType = rimProfile,
                         MinX_mm = -halfW,
                         MaxX_mm = halfW,
                         MinY_mm = -depth,
                         MaxY_mm = 0,
-                        StartZ_mm = basinBottomZ,
+                        StartZ_mm = rimDeckStartZ,
                         EndZ_mm = basinTopZ,
                         WidthParameter = "Width",
                         DepthParameter = "Depth",
@@ -1923,7 +1967,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MaterialParameter = "Ceramic_Material",
                         Subcategory = "Basin"
                     },
-                    // 2. Inner Hollow Basin Bowl (VOID Extrusion: Carves out the bowl cavity!)
+                    // 2. Inner Hollow Basin Bowl Cavity (VOID Extrusion: Carves genuine hollow interior)
                     new()
                     {
                         Name = "Basin_Inner_Bowl_Void",
@@ -1932,12 +1976,12 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MinX_mm = -halfW + 35.0,
                         MaxX_mm = halfW - 35.0,
                         MinY_mm = -depth + 35.0,
-                        MaxY_mm = -75.0, // leaves rear tap deck platform
+                        MaxY_mm = -85.0, // leaves 85mm rear faucet mounting deck
                         StartZ_mm = basinTopZ - bowlDepth,
-                        EndZ_mm = basinTopZ + 10.0,
+                        EndZ_mm = basinTopZ + 15.0, // cuts cleanly out through top rim face
                         Subcategory = "Basin"
                     },
-                    // 3. Faucet Tap Hole (VOID Extrusion: 35mm dia tap hole on rear deck)
+                    // 3. Faucet Tap Hole Cutout (VOID Extrusion: 35mm dia standard mixer hole)
                     new()
                     {
                         Name = "Faucet_Tap_Hole_Void",
@@ -1945,13 +1989,13 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         IsVoid = true,
                         MinX_mm = -18,
                         MaxX_mm = 18,
-                        MinY_mm = -58,
-                        MaxY_mm = -22,
+                        MinY_mm = -68,
+                        MaxY_mm = -32,
                         Radius_mm = 18,
                         StartZ_mm = basinBottomZ - 20,
-                        EndZ_mm = basinTopZ + 10
+                        EndZ_mm = basinTopZ + 15
                     },
-                    // 4. Waste Drain Hole (VOID Extrusion: 46mm dia waste hole in bottom of bowl)
+                    // 4. Waste Drain Hole Cutout (VOID Extrusion: 46mm dia waste hole in bottom of bowl)
                     new()
                     {
                         Name = "Waste_Drain_Hole_Void",
@@ -1959,40 +2003,134 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         IsVoid = true,
                         MinX_mm = -23,
                         MaxX_mm = 23,
-                        MinY_mm = (-depth / 2.0) - 23,
-                        MaxY_mm = (-depth / 2.0) + 23,
+                        MinY_mm = -230 - 23,
+                        MaxY_mm = -230 + 23,
                         Radius_mm = 23,
                         StartZ_mm = basinBottomZ - 20,
                         EndZ_mm = basinTopZ - bowlDepth + 15
+                    },
+                    // 5. Chrome Mixer Tap - Base Collar Flange
+                    new()
+                    {
+                        Name = "Chrome_Tap_Base_Collar",
+                        ProfileType = "Cylinder",
+                        MinX_mm = -24,
+                        MaxX_mm = 24,
+                        MinY_mm = -74,
+                        MaxY_mm = -26,
+                        Radius_mm = 24,
+                        StartZ_mm = basinTopZ,
+                        EndZ_mm = basinTopZ + 8,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // 6. Chrome Mixer Tap - Vertical Cylindrical Pillar Body
+                    new()
+                    {
+                        Name = "Chrome_Tap_Main_Body",
+                        ProfileType = "Cylinder",
+                        MinX_mm = -18,
+                        MaxX_mm = 18,
+                        MinY_mm = -68,
+                        MaxY_mm = -32,
+                        Radius_mm = 18,
+                        StartZ_mm = basinTopZ + 8,
+                        EndZ_mm = basinTopZ + 135,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // 7. Chrome Mixer Tap - Forward Spout Arm Extending Over Bowl
+                    new()
+                    {
+                        Name = "Chrome_Tap_Spout_Arm",
+                        ProfileType = "RoundedRectangle",
+                        MinX_mm = -10,
+                        MaxX_mm = 10,
+                        MinY_mm = -140,
+                        MaxY_mm = -35,
+                        CornerRadius_mm = 8,
+                        StartZ_mm = basinTopZ + 115,
+                        EndZ_mm = basinTopZ + 135,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // 8. Chrome Mixer Tap - Aerator Nozzle Head Pointing Down Into Bowl
+                    new()
+                    {
+                        Name = "Chrome_Tap_Aerator_Nozzle",
+                        ProfileType = "Cylinder",
+                        MinX_mm = -10,
+                        MaxX_mm = 10,
+                        MinY_mm = -140,
+                        MaxY_mm = -120,
+                        Radius_mm = 10,
+                        StartZ_mm = basinTopZ + 88,
+                        EndZ_mm = basinTopZ + 115,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // 9. Chrome Mixer Tap - Single-Lever Control Handle
+                    new()
+                    {
+                        Name = "Chrome_Tap_Lever_Handle",
+                        ProfileType = "Rectangle",
+                        MinX_mm = -6,
+                        MaxX_mm = 6,
+                        MinY_mm = -65,
+                        MaxY_mm = 15,
+                        StartZ_mm = basinTopZ + 135,
+                        EndZ_mm = basinTopZ + 146,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Chrome_Finish"
                     }
                 },
                 NestedFamilies = new List<NestedFamilyDef>()
             };
 
-            // 5. Half-Pedestal or Full-Pedestal Shroud (Smooth Tapering Blend)
+            // 10. Outer Ceramic Under-Bowl Taper (Smooth curved transition from rim deck to bottom)
+            double botBowlW = width * 0.62;
+            double botBowlD = depth * 0.65;
+            schema.HostBlends.Add(new BlendDef
+            {
+                Name = "Basin_Underbowl_Curved_Taper",
+                TopProfileType = rimProfile,
+                BottomProfileType = rimProfile,
+                TopMinX_mm = -halfW,
+                TopMaxX_mm = halfW,
+                TopMinY_mm = -depth,
+                TopMaxY_mm = 0,
+                BottomMinX_mm = -botBowlW / 2.0,
+                BottomMaxX_mm = botBowlW / 2.0,
+                BottomMinY_mm = -botBowlD,
+                BottomMaxY_mm = 0,
+                BottomOffset_mm = basinBottomZ,
+                TopOffset_mm = rimDeckStartZ,
+                Subcategory = "Basin",
+                MaterialParameter = "Ceramic_Material"
+            });
+
+            // 11. Half-Pedestal Shroud or Full-Pedestal Column (Smooth Architectural Blend)
             if (hasPedestal)
             {
-                double pedW = Math.Min(220.0, width * 0.40);
-                double pedD = Math.Min(250.0, depth * 0.55);
-                double pedStartZ = isHalfPedestal ? Math.Max(50.0, basinBottomZ - 260.0) : 0;
-                double pedEndZ = basinBottomZ + 10.0; // joins seamlessly into basin underside
-
-                double taper = isHalfPedestal ? 0.65 : 0.85;
-                double botW = pedW * taper;
-                double botD = pedD * taper;
+                double pedTopW = Math.Min(280.0, width * 0.52);
+                double pedTopD = Math.Min(220.0, depth * 0.55);
+                double pedBotW = isHalfPedestal ? 80.0 : Math.Min(180.0, width * 0.35);
+                double pedBotD = isHalfPedestal ? 120.0 : Math.Min(160.0, depth * 0.40);
+                double pedStartZ = isHalfPedestal ? 350.0 : 0.0;
+                double pedEndZ = basinBottomZ + 5.0; // joins seamlessly into basin underside
 
                 schema.HostBlends.Add(new BlendDef
                 {
                     Name = isHalfPedestal ? "Half_Pedestal_Tapered_Shroud" : "Full_Pedestal_Tapered_Column",
                     BottomProfileType = "DShape",
                     TopProfileType = "DShape",
-                    BottomMinX_mm = -botW / 2.0,
-                    BottomMaxX_mm = botW / 2.0,
-                    BottomMinY_mm = -botD,
+                    BottomMinX_mm = -pedBotW / 2.0,
+                    BottomMaxX_mm = pedBotW / 2.0,
+                    BottomMinY_mm = -pedBotD,
                     BottomMaxY_mm = 0,
-                    TopMinX_mm = -pedW / 2.0,
-                    TopMaxX_mm = pedW / 2.0,
-                    TopMinY_mm = -pedD,
+                    TopMinX_mm = -pedTopW / 2.0,
+                    TopMaxX_mm = pedTopW / 2.0,
+                    TopMinY_mm = -pedTopD,
                     TopMaxY_mm = 0,
                     BottomOffset_mm = pedStartZ,
                     TopOffset_mm = pedEndZ,
@@ -2001,72 +2139,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 });
             }
 
-            // 6. Chrome Mixer Faucet Nested Component
-            schema.NestedFamilies.Add(new NestedFamilyDef
-            {
-                NestedFamilyName = $"{familyName}_Chrome_Faucet",
-                TemplateName = "Metric Generic Model.rft",
-                SubExtrusions = new List<ExtrusionDef>
-                {
-                    // Vertical cylindrical tap body
-                    new()
-                    {
-                        Name = "Faucet_Body",
-                        ProfileType = "Cylinder",
-                        Radius_mm = 22,
-                        StartZ_mm = 0,
-                        EndZ_mm = 110,
-                        MaterialParameter = "Chrome_Finish"
-                    },
-                    // Curved forward spout
-                    new()
-                    {
-                        Name = "Faucet_Spout",
-                        ProfileType = "Cylinder",
-                        MinX_mm = -12,
-                        MaxX_mm = 12,
-                        MinY_mm = -75,
-                        MaxY_mm = 0,
-                        Radius_mm = 12,
-                        StartZ_mm = 90,
-                        EndZ_mm = 110,
-                        MaterialParameter = "Chrome_Finish"
-                    },
-                    // Single lever handle on top
-                    new()
-                    {
-                        Name = "Faucet_Lever",
-                        ProfileType = "Rectangle",
-                        MinX_mm = -7,
-                        MaxX_mm = 7,
-                        MinY_mm = -40,
-                        MaxY_mm = 10,
-                        StartZ_mm = 110,
-                        EndZ_mm = 120,
-                        MaterialParameter = "Chrome_Finish"
-                    }
-                },
-                PlacementOffsetMm = new VectorOffsetDef(0, -40, basinTopZ)
-            });
-
-            // 7. Architectural Curved Faucet Spout (3D Sweep)
-            schema.HostSweeps.Add(new SweepDef
-            {
-                Name = "Chrome_Mixer_Tap_Spout",
-                ProfileType = "Circle",
-                ProfileRadius_mm = 11.0,
-                PathPoints_mm = new List<VectorOffsetDef>
-                {
-                    new(0, -40, basinTopZ),
-                    new(0, -40, basinTopZ + 75),
-                    new(0, -65, basinTopZ + 90),
-                    new(0, -100, basinTopZ + 70)
-                },
-                Subcategory = "Hardware",
-                MaterialParameter = "Chrome_Finish"
-            });
-
-            // 8. MEP System Engineering Connectors (Water Supply & Waste Drain)
+            // 12. MEP System Engineering Connectors (Water Supply & Waste Drain)
             schema.MepConnectors = new List<MepConnectorDef>
             {
                 new()
@@ -2075,7 +2148,16 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     Domain = "Pipe",
                     SystemType = "DomesticColdWater",
                     Diameter_mm = 15.0,
-                    OriginOffsetMm = new VectorOffsetDef(0, -40, basinBottomZ),
+                    OriginOffsetMm = new VectorOffsetDef(-50, -40, 600.0),
+                    Direction = "-Z"
+                },
+                new()
+                {
+                    Name = "Hot_Water_Supply_Inlet",
+                    Domain = "Pipe",
+                    SystemType = "DomesticHotWater",
+                    Diameter_mm = 15.0,
+                    OriginOffsetMm = new VectorOffsetDef(50, -40, 600.0),
                     Direction = "-Z"
                 },
                 new()
@@ -2083,13 +2165,13 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     Name = "Sanitary_Waste_Drain_Outlet",
                     Domain = "Pipe",
                     SystemType = "Sanitary",
-                    Diameter_mm = 40.0,
-                    OriginOffsetMm = new VectorOffsetDef(0, -depth / 2.0, basinBottomZ),
+                    Diameter_mm = 32.0,
+                    OriginOffsetMm = new VectorOffsetDef(0, -230.0, 540.0), // matches 540mm waste line from RAK cut sheet!
                     Direction = "-Z"
                 }
             };
 
-            // 9. 2D Plan Symbolic linework (Clear architectural outline in floor plans)
+            // 13. 2D Plan Symbolic Linework (Crisp architectural outline in floor plans)
             schema.SymbolicCurves = new List<SymbolicCurveDef>
             {
                 new()

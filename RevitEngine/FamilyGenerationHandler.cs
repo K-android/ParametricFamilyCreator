@@ -61,7 +61,8 @@ namespace ParametricFamilyForge.RevitEngine
                     CurrentSchema,
                     nestedRfaMap,
                     TemplateDirectory,
-                    OutputDirectory
+                    OutputDirectory,
+                    OnLog
                 );
 
                 OnLog?.Invoke($"[REVIT SUCCESS] Master Family successfully saved to '{finalMasterPath}' and loaded into current project!");

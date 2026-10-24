@@ -71,6 +71,79 @@ This document tracks all autonomous and user-directed refinements made to **Para
   - `net8.0-windows` (.NET 8.0 / Revit 2025 & 2026)
 
 ### Next Suggested Refinements
-1. Add an interactive 2D Canvas or 3D HelixToolkit / viewport preview in the WPF UI to visualize the family extrusions and bounding boxes before compiling in Revit.
+1. Add an interactive 2D Canvas or 3D HelixToolkit / viewport preview in the WPF UI to visualize the family extrusions and bounding boxes before compiling in Revit. *(Completed)*
 2. Add support for Sweeps and Revolves in `FamilySchema` and `MasterFamilyBuilder` for organic architectural moldings, door trim profiles, and curved handles.
-3. Add a Revit Shared Parameters File (`.txt`) exporter for linking custom shared GUID parameters to family parameters.
+3. Add a Revit Shared Parameters File (`.txt`) exporter for linking custom shared GUID parameters to family parameters. *(Completed)*
+
+---
+
+## [2026-10-24 22:15 UTC+05:30] Interactive 2D Geometry Viewport & Autodesk Revit Shared Parameter Exporter
+
+### Context & Directive
+- **Directive Source**: Autonomous Away-Mode Refiner Subagent (`flash` tier).
+- **Focus Project**: `ParametricFamilyForge` (Autodesk Revit 2024, 2025 & 2026 Add-in).
+- **Core Objectives**:
+  1. Implement Autodesk Revit Shared Parameter File Exporter (`Services/SharedParameterService.cs`).
+  2. Implement Interactive 2D Geometry Preview in WPF (`UI/ForgeWindow.xaml`, `UI/ForgeWindow.xaml.cs`) with dual Plan View (X-Y) and Front Elevation View (X-Z), labeled dimension lines, centerlines, and view layout modes.
+  3. Verify multi-target build (`net48` and `net8.0-windows`) with 0 errors.
+
+### Improvements Made
+1. **Autodesk Revit Shared Parameter File Exporter (`Services/SharedParameterService.cs`)**:
+   - Engineered full compliance with the official Autodesk Revit Shared Parameter definition file format:
+     - Header block: `# This is a Revit shared parameter file.`, `*META`, `*GROUP`, `*PARAM`.
+     - Group definition: `GROUP 1 ParametricFamilyForge Parameters`.
+     - Tab-delimited records: `PARAM {GUID} {NAME} {DATATYPE} {DATACAT} {GROUP} {VISIBLE} {DESCRIPTION} {USERMODIFIABLE} {HIDEWHENNOVALUE}`.
+   - Deterministic MD5-based GUID generator (`GenerateDeterministicGuid`) guaranteeing stable, repeatable GUID assignments across re-exports and multiple models.
+   - Intelligent schema scanner (`ExtractSharedParameters`) aggregating all unique parameters from `MasterParameters`, `ReferencePlanes` (driven constraints), `HostExtrusions` (Height, Width, Depth, Material, Visibility), and `NestedFamilies` (sub-parameters and bindings).
+   - Strict datatype mapper (`MapToRevitSharedParamType`):
+     - `LENGTH`, `ANGLE`, `AREA`, `VOLUME`, `NUMBER`, `INTEGER`, `YESNO`, `MATERIAL`, `TEXT`, `URL`.
+   - Methods: `ExportSharedParameterFile(FamilySchema, string filePath)` and `GenerateSharedParameterFileContent(FamilySchema)`.
+
+2. **Interactive 2D Geometry Viewport in WPF (`UI/ForgeWindow.xaml`, `UI/ForgeWindow.xaml.cs`)**:
+   - Replaced plain text editor area with a dark-themed `TabControl` containing:
+     - **Tab 1: 📐 Geometry Preview**: Live 2D CAD canvas rendering both Plan and Elevation views.
+     - **Tab 2: 📝 JSON Specification**: Raw syntax-highlighted editor with real-time sync.
+   - **Plan View (Top-Down X-Y)**:
+     - Renders exact 2D footprint bounding boxes of all host extrusions (`Rectangle`, `Ellipse`/`Cylinder`, `HollowBox`) and nested sub-components (with placement offset vector translation).
+     - Color-coded geometry: Host extrusions in slate cyan (`#61AFEF`), nested sub-components in emerald (`#98C379`).
+     - Rendered reference centerlines ($X=0$ and $Y=0$) in subtle dashed cyan.
+     - Architectural dimension lines with 45° tick marks, extension lines, and amber badges (`#E5C07B`) for overall **Width** and **Depth**.
+   - **Front Elevation View (Front X-Z)**:
+     - Renders vertical projection of all extrusions from $StartZ$ to $EndZ$.
+     - Draws Reference Level ($Z=0.0$) ground plane with labeled badge and centerline ($X=0.0$).
+     - Architectural dimension lines for overall **Width** and **Height**.
+   - **Layout Switcher (`CmbPreviewLayout`)**:
+     - *Side-by-Side (Plan | Elevation)*: Dual synchronized viewports with interactive `GridSplitter`.
+     - *Plan View (Top-Down X-Y)*: Maximized full-width top-down inspection.
+     - *Front Elevation (X-Z)*: Maximized full-width height inspection.
+   - **Reactive Viewport Updates**:
+     - Auto-redraws upon preset selection, JSON import, validation pass, window resize (`SizeChanged`), or clicking **🔄 Redraw**.
+     - Top dimension banner summarizing bounding box (`W × D × H mm`) and extrusion/nested counts.
+
+3. **WPF UI Integration & Shared Parameter Toolbar Action**:
+   - Added **🏷️ Shared Params** toolbar button (`BtnExportSharedParams_Click`) with a `SaveFileDialog` for one-click `.txt` export.
+   - Added TabControl and TabItem dark-theme vector styling in `Window.Resources`.
+   - Wired bidirectional updates so changes in the JSON editor immediately re-render geometry in the 2D preview.
+
+4. **Release Staging & Documentation**:
+   - Updated `README.md` with 2D Geometry Viewport and Shared Parameter Exporter sections.
+   - Re-staged compiled release binaries to `Release_Binaries/Revit_2024`, `Release_Binaries/Revit_2025_2026`, and root `ParametricFamilyForge.dll`.
+
+### Files Modified & Created
+- `Services/SharedParameterService.cs` *(New)*: Shared parameter file format generator, deterministic GUID engine, and export pipeline.
+- `UI/ForgeWindow.xaml`: TabControl interface, Geometry Preview canvas viewports, dimension legend, layout switcher, and Shared Params toolbar button.
+- `UI/ForgeWindow.xaml.cs`: 2D CAD projection math, Plan & Elevation canvas renderers, dimension line drawers, layout toggler, and shared parameters export handler.
+- `README.md`: Feature descriptions and repository structure diagram updated.
+- `REFINEMENTS.md`: Added dated entry for this refinement pass.
+
+### Build Verification Status
+- **Build Command**: `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\User\.gemini\antigravity\scratch\away-refiner-bot\scripts\jarvis_tools.ps1 -Action RevitBuildDeploy -Target "ParametricFamilyForge"`
+- **Result**: `Build succeeded. 0 Warning(s), 0 Error(s)`.
+- **Frameworks Verified**:
+  - `net48` (.NET Framework 4.8 / Revit 2024) -> `Build succeeded. 0 Warning(s), 0 Error(s)`
+  - `net8.0-windows` (.NET 8.0 / Revit 2025 & 2026) -> `Build succeeded. 0 Warning(s), 0 Error(s)`
+
+### Next Suggested Refinements
+1. Add 3D interactive orbit preview using Helix Toolkit (or WPF Viewport3D) for real-time 3D rotation and shading before compiling in Revit.
+2. Add support for Sweeps (trajectory curve + profile sketch) and Revolves in `FamilySchema` and `MasterFamilyBuilder` for architectural moldings, round door hardware, and organic sanitary fixtures.
+3. Add automated unit test runner project verifying schema serialization, shared parameter file formatting, and type catalog exports.

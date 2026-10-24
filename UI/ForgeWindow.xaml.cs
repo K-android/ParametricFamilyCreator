@@ -1,10 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Rectangle = System.Windows.Shapes.Rectangle;
+using Ellipse = System.Windows.Shapes.Ellipse;
+using Line = System.Windows.Shapes.Line;
 using Autodesk.Revit.UI;
 using Microsoft.Win32;
 using ParametricFamilyForge.Models;
@@ -157,6 +162,7 @@ namespace ParametricFamilyForge.UI
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 TxtJsonPreview.Text = JsonSerializer.Serialize(schema, options);
                 RunQuickValidation(schema);
+                RedrawGeometryPreview(schema);
             }
             finally
             {
@@ -203,6 +209,8 @@ namespace ParametricFamilyForge.UI
                 TxtValidationBadge.Foreground = new SolidColorBrush(Color.FromRgb(224, 108, 117));
                 ValidationBanner.BorderBrush = new SolidColorBrush(Color.FromRgb(224, 108, 117));
             }
+
+            RedrawGeometryPreview(schema);
         }
 
         private void TxtJsonPreview_TextChanged(object sender, TextChangedEventArgs e)
@@ -329,6 +337,39 @@ namespace ParametricFamilyForge.UI
             }
         }
 
+        private void BtnExportSharedParams_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string jsonText = TxtJsonPreview.Text.Trim();
+                var schema = JsonSerializer.Deserialize<FamilySchema>(jsonText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (schema == null) throw new InvalidOperationException("Current schema in editor is invalid.");
+
+                var dlg = new SaveFileDialog
+                {
+                    Title = "Export Autodesk Revit Shared Parameter File",
+                    Filter = "Revit Shared Parameters (*.txt)|*.txt|All Files (*.*)|*.*",
+                    FileName = $"{schema.MasterFamilyName}_SharedParameters.txt"
+                };
+
+                if (dlg.ShowDialog(this) == true)
+                {
+                    SharedParameterService.ExportSharedParameterFile(schema, dlg.FileName);
+                    var records = SharedParameterService.ExtractSharedParameters(schema);
+                    LogMessage($"Exported Revit Shared Parameter file with {records.Count} parameters to '{dlg.FileName}'.");
+                    MessageBox.Show(this, 
+                        $"Autodesk Revit Shared Parameter file successfully generated!\n\nParameters: {records.Count}\nPath:\n{dlg.FileName}\n\n(Import this file into Revit under Manage > Shared Parameters to link shared parameters to family and schedule fields)", 
+                        "Shared Parameters Exported", 
+                        MessageBoxButton.OK, 
+                        MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to export Shared Parameters: {ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void BtnValidate_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -338,6 +379,7 @@ namespace ParametricFamilyForge.UI
                 var report = SchemaValidator.Validate(schema);
 
                 RunQuickValidation(schema);
+                RedrawGeometryPreview(schema);
 
                 LogMessage("=============================================");
                 LogMessage($"[Schema Validation] {report.SummaryText}");
@@ -372,6 +414,568 @@ namespace ParametricFamilyForge.UI
             {
                 MessageBox.Show(this, $"Schema validation error: {ex.Message}", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        #endregion
+
+        #region Interactive 2D Geometry Preview (Plan & Elevation)
+
+        private class ExtrusionBounds
+        {
+            public string Name { get; set; } = string.Empty;
+            public string ProfileType { get; set; } = "Rectangle";
+            public double MinX { get; set; }
+            public double MaxX { get; set; }
+            public double MinY { get; set; }
+            public double MaxY { get; set; }
+            public double MinZ { get; set; }
+            public double MaxZ { get; set; }
+            public double Radius { get; set; }
+            public bool IsNested { get; set; }
+        }
+
+        private void RightTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.Source == RightTabControl)
+            {
+                Dispatcher.BeginInvoke(new Action(() => RedrawGeometryPreview()), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+        }
+
+        private void CmbPreviewLayout_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ColPlan == null || ColElevation == null || CmbPreviewLayout == null) return;
+            if (CmbPreviewLayout.SelectedItem is ComboBoxItem item && item.Tag != null)
+            {
+                string tag = item.Tag.ToString()!;
+                switch (tag)
+                {
+                    case "plan":
+                        ColPlan.Width = new GridLength(1, GridUnitType.Star);
+                        ColSplitter.Width = new GridLength(0);
+                        ColElevation.Width = new GridLength(0);
+                        BorderPlan.Visibility = Visibility.Visible;
+                        BorderElevation.Visibility = Visibility.Collapsed;
+                        PreviewSplitter.Visibility = Visibility.Collapsed;
+                        break;
+                    case "elevation":
+                        ColPlan.Width = new GridLength(0);
+                        ColSplitter.Width = new GridLength(0);
+                        ColElevation.Width = new GridLength(1, GridUnitType.Star);
+                        BorderPlan.Visibility = Visibility.Collapsed;
+                        BorderElevation.Visibility = Visibility.Visible;
+                        PreviewSplitter.Visibility = Visibility.Collapsed;
+                        break;
+                    case "both":
+                    default:
+                        ColPlan.Width = new GridLength(1, GridUnitType.Star);
+                        ColSplitter.Width = new GridLength(6);
+                        ColElevation.Width = new GridLength(1, GridUnitType.Star);
+                        BorderPlan.Visibility = Visibility.Visible;
+                        BorderElevation.Visibility = Visibility.Visible;
+                        PreviewSplitter.Visibility = Visibility.Visible;
+                        break;
+                }
+                Dispatcher.BeginInvoke(new Action(() => RedrawGeometryPreview()), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+        }
+
+        private void BtnRefreshPreview_Click(object sender, RoutedEventArgs e)
+        {
+            RedrawGeometryPreview();
+            LogMessage("Redrew 2D geometry preview.");
+        }
+
+        private void Canvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (e.NewSize.Width > 40 && e.NewSize.Height > 40)
+            {
+                RedrawGeometryPreview();
+            }
+        }
+
+        private void RedrawGeometryPreview(FamilySchema? schema = null)
+        {
+            if (CanvasPlan == null || CanvasElevation == null) return;
+
+            if (schema == null)
+            {
+                try
+                {
+                    string json = TxtJsonPreview?.Text?.Trim() ?? "";
+                    if (string.IsNullOrEmpty(json)) return;
+                    schema = JsonSerializer.Deserialize<FamilySchema>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch
+                {
+                    return;
+                }
+            }
+
+            if (schema == null) return;
+
+            var boxes = ExtractExtrusions(schema);
+            if (boxes.Count == 0)
+            {
+                CanvasPlan.Children.Clear();
+                CanvasElevation.Children.Clear();
+                if (TxtPreviewDimensions != null) TxtPreviewDimensions.Text = "No geometric extrusions found in schema.";
+                return;
+            }
+
+            double minX = boxes.Min(b => b.MinX);
+            double maxX = boxes.Max(b => b.MaxX);
+            double minY = boxes.Min(b => b.MinY);
+            double maxY = boxes.Max(b => b.MaxY);
+            double minZ = boxes.Min(b => b.MinZ);
+            double maxZ = boxes.Max(b => b.MaxZ);
+
+            double totalWidth = Math.Max(maxX - minX, 1.0);
+            double totalDepth = Math.Max(maxY - minY, 1.0);
+            double totalHeight = Math.Max(maxZ - minZ, 1.0);
+
+            int hostCount = boxes.Count(b => !b.IsNested);
+            int nestedCount = boxes.Count(b => b.IsNested);
+
+            if (TxtPreviewDimensions != null)
+            {
+                TxtPreviewDimensions.Text = $"Bounding: {totalWidth:0.#} × {totalDepth:0.#} × {totalHeight:0.#} mm | {hostCount} Host, {nestedCount} Nested Components";
+            }
+
+            DrawPlanView(boxes, minX, maxX, minY, maxY, totalWidth, totalDepth);
+            DrawElevationView(boxes, minX, maxX, minZ, maxZ, totalWidth, totalHeight);
+        }
+
+        private List<ExtrusionBounds> ExtractExtrusions(FamilySchema schema)
+        {
+            var list = new List<ExtrusionBounds>();
+            if (schema.HostExtrusions != null)
+            {
+                foreach (var ext in schema.HostExtrusions)
+                {
+                    var b = new ExtrusionBounds
+                    {
+                        Name = ext.Name,
+                        ProfileType = ext.ProfileType,
+                        IsNested = false,
+                        MinZ = Math.Min(ext.StartZ_mm, ext.EndZ_mm),
+                        MaxZ = Math.Max(ext.StartZ_mm, ext.EndZ_mm)
+                    };
+
+                    if (string.Equals(ext.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase) && ext.Radius_mm > 0)
+                    {
+                        double r = ext.Radius_mm;
+                        double cx = (ext.MinX_mm + ext.MaxX_mm) / 2.0;
+                        double cy = (ext.MinY_mm + ext.MaxY_mm) / 2.0;
+                        b.MinX = cx - r;
+                        b.MaxX = cx + r;
+                        b.MinY = cy - r;
+                        b.MaxY = cy + r;
+                        b.Radius = r;
+                    }
+                    else
+                    {
+                        b.MinX = Math.Min(ext.MinX_mm, ext.MaxX_mm);
+                        b.MaxX = Math.Max(ext.MinX_mm, ext.MaxX_mm);
+                        b.MinY = Math.Min(ext.MinY_mm, ext.MaxY_mm);
+                        b.MaxY = Math.Max(ext.MinY_mm, ext.MaxY_mm);
+                    }
+                    list.Add(b);
+                }
+            }
+
+            if (schema.NestedFamilies != null)
+            {
+                foreach (var nf in schema.NestedFamilies)
+                {
+                    double offX = nf.PlacementOffsetMm?.X ?? 0.0;
+                    double offY = nf.PlacementOffsetMm?.Y ?? 0.0;
+                    double offZ = nf.PlacementOffsetMm?.Z ?? 0.0;
+
+                    if (nf.SubExtrusions != null)
+                    {
+                        foreach (var sub in nf.SubExtrusions)
+                        {
+                            var b = new ExtrusionBounds
+                            {
+                                Name = string.IsNullOrEmpty(sub.Name) ? nf.NestedFamilyName : $"{nf.NestedFamilyName}: {sub.Name}",
+                                ProfileType = sub.ProfileType,
+                                IsNested = true,
+                                MinZ = offZ + Math.Min(sub.StartZ_mm, sub.EndZ_mm),
+                                MaxZ = offZ + Math.Max(sub.StartZ_mm, sub.EndZ_mm)
+                            };
+
+                            if (string.Equals(sub.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase) && sub.Radius_mm > 0)
+                            {
+                                double r = sub.Radius_mm;
+                                double cx = offX + (sub.MinX_mm + sub.MaxX_mm) / 2.0;
+                                double cy = offY + (sub.MinY_mm + sub.MaxY_mm) / 2.0;
+                                b.MinX = cx - r;
+                                b.MaxX = cx + r;
+                                b.MinY = cy - r;
+                                b.MaxY = cy + r;
+                                b.Radius = r;
+                            }
+                            else
+                            {
+                                b.MinX = offX + Math.Min(sub.MinX_mm, sub.MaxX_mm);
+                                b.MaxX = offX + Math.Max(sub.MinX_mm, sub.MaxX_mm);
+                                b.MinY = offY + Math.Min(sub.MinY_mm, sub.MaxY_mm);
+                                b.MaxY = offY + Math.Max(sub.MinY_mm, sub.MaxY_mm);
+                            }
+                            list.Add(b);
+                        }
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        private void DrawPlanView(List<ExtrusionBounds> boxes, double minX, double maxX, double minY, double maxY, double totalWidth, double totalDepth)
+        {
+            CanvasPlan.Children.Clear();
+            double W = CanvasPlan.ActualWidth;
+            double H = CanvasPlan.ActualHeight;
+            if (W < 40 || H < 40) return;
+
+            double margin = 48.0;
+            double availW = Math.Max(W - (margin * 2), 20.0);
+            double availH = Math.Max(H - (margin * 2), 20.0);
+
+            double spanX = Math.Max(totalWidth, 50.0);
+            double spanY = Math.Max(totalDepth, 50.0);
+
+            double scale = Math.Min(availW / spanX, availH / spanY);
+            if (scale <= 0) scale = 0.1;
+
+            double modelCenterX = (minX + maxX) / 2.0;
+            double modelCenterY = (minY + maxY) / 2.0;
+            double canvasCenterX = W / 2.0;
+            double canvasCenterY = H / 2.0;
+
+            double ToPxX(double mx) => canvasCenterX + (mx - modelCenterX) * scale;
+            double ToPxY(double my) => canvasCenterY - (my - modelCenterY) * scale;
+
+            // Reference centerlines
+            double clX = ToPxX(0.0);
+            if (clX >= 0 && clX <= W)
+            {
+                CanvasPlan.Children.Add(new Line
+                {
+                    X1 = clX, Y1 = 6, X2 = clX, Y2 = H - 6,
+                    Stroke = new SolidColorBrush(Color.FromArgb(90, 97, 175, 239)),
+                    StrokeThickness = 1,
+                    StrokeDashArray = new DoubleCollection { 4, 3 }
+                });
+            }
+
+            double clY = ToPxY(0.0);
+            if (clY >= 0 && clY <= H)
+            {
+                CanvasPlan.Children.Add(new Line
+                {
+                    X1 = 6, Y1 = clY, X2 = W - 6, Y2 = clY,
+                    Stroke = new SolidColorBrush(Color.FromArgb(90, 97, 175, 239)),
+                    StrokeThickness = 1,
+                    StrokeDashArray = new DoubleCollection { 4, 3 }
+                });
+            }
+
+            // Extrusions
+            foreach (var b in boxes)
+            {
+                double x1 = ToPxX(b.MinX);
+                double x2 = ToPxX(b.MaxX);
+                double y1 = ToPxY(b.MinY); // larger pixel Y (lower)
+                double y2 = ToPxY(b.MaxY); // smaller pixel Y (higher)
+
+                double rx = Math.Min(x1, x2);
+                double ry = Math.Min(y1, y2);
+                double rw = Math.Max(Math.Abs(x2 - x1), 2.0);
+                double rh = Math.Max(Math.Abs(y1 - y2), 2.0);
+
+                Color mainColor = b.IsNested ? Color.FromRgb(152, 195, 121) : Color.FromRgb(97, 175, 239);
+                Color fillColor = Color.FromArgb(65, mainColor.R, mainColor.G, mainColor.B);
+
+                if (string.Equals(b.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
+                {
+                    var ellipse = new Ellipse
+                    {
+                        Width = rw, Height = rh,
+                        Fill = new SolidColorBrush(fillColor),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.2
+                    };
+                    Canvas.SetLeft(ellipse, rx);
+                    Canvas.SetTop(ellipse, ry);
+                    CanvasPlan.Children.Add(ellipse);
+                }
+                else
+                {
+                    var rect = new Rectangle
+                    {
+                        Width = rw, Height = rh,
+                        Fill = new SolidColorBrush(fillColor),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.2,
+                        RadiusX = 2, RadiusY = 2
+                    };
+                    Canvas.SetLeft(rect, rx);
+                    Canvas.SetTop(rect, ry);
+                    CanvasPlan.Children.Add(rect);
+                }
+
+                if (rw > 50 && rh > 18)
+                {
+                    var txt = new TextBlock
+                    {
+                        Text = b.Name,
+                        FontSize = 9.5,
+                        Foreground = new SolidColorBrush(Color.FromRgb(210, 215, 225)),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        MaxWidth = rw - 4,
+                        TextAlignment = TextAlignment.Center
+                    };
+                    Canvas.SetLeft(txt, rx + 2);
+                    Canvas.SetTop(txt, ry + (rh / 2.0) - 7);
+                    CanvasPlan.Children.Add(txt);
+                }
+            }
+
+            // Dimensions
+            double bottomY = ToPxY(minY);
+            double dimY = Math.Min(bottomY + 22.0, H - 14.0);
+            DrawHorizontalDimension(CanvasPlan, ToPxX(minX), ToPxX(maxX), dimY, bottomY, $"Width: {totalWidth:0.#} mm");
+
+            double rightX = ToPxX(maxX);
+            double dimX = Math.Min(rightX + 22.0, W - 14.0);
+            DrawVerticalDimension(CanvasPlan, ToPxY(minY), ToPxY(maxY), dimX, rightX, $"Depth: {totalDepth:0.#} mm");
+
+            // Title badge
+            var title = new TextBlock
+            {
+                Text = $"📐 Plan View (Top-Down X-Y)\nFootprint: {totalWidth:0.#} × {totalDepth:0.#} mm",
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(97, 175, 239)),
+                Margin = new Thickness(6, 6, 0, 0)
+            };
+            Canvas.SetLeft(title, 6);
+            Canvas.SetTop(title, 4);
+            CanvasPlan.Children.Add(title);
+        }
+
+        private void DrawElevationView(List<ExtrusionBounds> boxes, double minX, double maxX, double minZ, double maxZ, double totalWidth, double totalHeight)
+        {
+            CanvasElevation.Children.Clear();
+            double W = CanvasElevation.ActualWidth;
+            double H = CanvasElevation.ActualHeight;
+            if (W < 40 || H < 40) return;
+
+            double margin = 48.0;
+            double availW = Math.Max(W - (margin * 2), 20.0);
+            double availH = Math.Max(H - (margin * 2), 20.0);
+
+            double spanX = Math.Max(totalWidth, 50.0);
+            double spanZ = Math.Max(totalHeight, 50.0);
+
+            double scale = Math.Min(availW / spanX, availH / spanZ);
+            if (scale <= 0) scale = 0.1;
+
+            double modelCenterX = (minX + maxX) / 2.0;
+            double modelCenterZ = (minZ + maxZ) / 2.0;
+            double canvasCenterX = W / 2.0;
+            double canvasCenterY = H / 2.0;
+
+            double ToPxX(double mx) => canvasCenterX + (mx - modelCenterX) * scale;
+            double ToPxZ(double mz) => canvasCenterY - (mz - modelCenterZ) * scale;
+
+            // Reference Level (Z=0)
+            double groundZ = ToPxZ(0.0);
+            if (groundZ >= 0 && groundZ <= H)
+            {
+                CanvasElevation.Children.Add(new Line
+                {
+                    X1 = 6, Y1 = groundZ, X2 = W - 6, Y2 = groundZ,
+                    Stroke = new SolidColorBrush(Color.FromArgb(160, 152, 195, 121)),
+                    StrokeThickness = 1.2
+                });
+
+                var lvlLabel = new TextBlock
+                {
+                    Text = "Ref Level (Z=0.0)",
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(Color.FromRgb(152, 195, 121))
+                };
+                Canvas.SetLeft(lvlLabel, 8);
+                Canvas.SetTop(lvlLabel, groundZ - 13);
+                CanvasElevation.Children.Add(lvlLabel);
+            }
+
+            // Vertical Centerline (X=0)
+            double clX = ToPxX(0.0);
+            if (clX >= 0 && clX <= W)
+            {
+                CanvasElevation.Children.Add(new Line
+                {
+                    X1 = clX, Y1 = 6, X2 = clX, Y2 = H - 6,
+                    Stroke = new SolidColorBrush(Color.FromArgb(90, 97, 175, 239)),
+                    StrokeThickness = 1,
+                    StrokeDashArray = new DoubleCollection { 4, 3 }
+                });
+            }
+
+            // Extrusions
+            foreach (var b in boxes)
+            {
+                double x1 = ToPxX(b.MinX);
+                double x2 = ToPxX(b.MaxX);
+                double z1 = ToPxZ(b.MinZ); // bottom
+                double z2 = ToPxZ(b.MaxZ); // top
+
+                double rx = Math.Min(x1, x2);
+                double rz = Math.Min(z1, z2);
+                double rw = Math.Max(Math.Abs(x2 - x1), 2.0);
+                double rh = Math.Max(Math.Abs(z1 - z2), 2.0);
+
+                Color mainColor = b.IsNested ? Color.FromRgb(152, 195, 121) : Color.FromRgb(97, 175, 239);
+                Color fillColor = Color.FromArgb(65, mainColor.R, mainColor.G, mainColor.B);
+
+                var rect = new Rectangle
+                {
+                    Width = rw, Height = rh,
+                    Fill = new SolidColorBrush(fillColor),
+                    Stroke = new SolidColorBrush(mainColor),
+                    StrokeThickness = 1.2,
+                    RadiusX = 1, RadiusY = 1
+                };
+                Canvas.SetLeft(rect, rx);
+                Canvas.SetTop(rect, rz);
+                CanvasElevation.Children.Add(rect);
+
+                if (rw > 50 && rh > 18)
+                {
+                    var txt = new TextBlock
+                    {
+                        Text = b.Name,
+                        FontSize = 9.5,
+                        Foreground = new SolidColorBrush(Color.FromRgb(210, 215, 225)),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        MaxWidth = rw - 4,
+                        TextAlignment = TextAlignment.Center
+                    };
+                    Canvas.SetLeft(txt, rx + 2);
+                    Canvas.SetTop(txt, rz + (rh / 2.0) - 7);
+                    CanvasElevation.Children.Add(txt);
+                }
+            }
+
+            // Dimensions
+            double bottomZ = ToPxZ(minZ);
+            double dimZ = Math.Min(bottomZ + 22.0, H - 14.0);
+            DrawHorizontalDimension(CanvasElevation, ToPxX(minX), ToPxX(maxX), dimZ, bottomZ, $"Width: {totalWidth:0.#} mm");
+
+            double rightX = ToPxX(maxX);
+            double dimX = Math.Min(rightX + 22.0, W - 14.0);
+            DrawVerticalDimension(CanvasElevation, ToPxZ(minZ), ToPxZ(maxZ), dimX, rightX, $"Height: {totalHeight:0.#} mm");
+
+            // Title badge
+            var title = new TextBlock
+            {
+                Text = $"📐 Front Elevation View (X-Z)\nHeight: {totalHeight:0.#} mm",
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(97, 175, 239)),
+                Margin = new Thickness(6, 6, 0, 0)
+            };
+            Canvas.SetLeft(title, 6);
+            Canvas.SetTop(title, 4);
+            CanvasElevation.Children.Add(title);
+        }
+
+        private void DrawHorizontalDimension(Canvas canvas, double x1, double x2, double y, double extYTop, string label)
+        {
+            double minPx = Math.Min(x1, x2);
+            double maxPx = Math.Max(x1, x2);
+            var stroke = new SolidColorBrush(Color.FromRgb(229, 192, 123)); // Amber #E5C07B
+            var extStroke = new SolidColorBrush(Color.FromArgb(120, 229, 192, 123));
+
+            // Extension lines
+            canvas.Children.Add(new Line { X1 = minPx, Y1 = extYTop, X2 = minPx, Y2 = y + 4, Stroke = extStroke, StrokeThickness = 1 });
+            canvas.Children.Add(new Line { X1 = maxPx, Y1 = extYTop, X2 = maxPx, Y2 = y + 4, Stroke = extStroke, StrokeThickness = 1 });
+
+            // Dimension line
+            canvas.Children.Add(new Line { X1 = minPx, Y1 = y, X2 = maxPx, Y2 = y, Stroke = stroke, StrokeThickness = 1.2 });
+
+            // Ticks (45 degree slash marks)
+            canvas.Children.Add(new Line { X1 = minPx - 3, Y1 = y + 3, X2 = minPx + 3, Y2 = y - 3, Stroke = stroke, StrokeThickness = 1.5 });
+            canvas.Children.Add(new Line { X1 = maxPx - 3, Y1 = y + 3, X2 = maxPx + 3, Y2 = y - 3, Stroke = stroke, StrokeThickness = 1.5 });
+
+            // Label with badge
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 34, 39)),
+                BorderBrush = stroke,
+                BorderThickness = new Thickness(0.5),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(4, 1, 4, 1)
+            };
+            border.Child = new TextBlock
+            {
+                Text = label,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = stroke
+            };
+            border.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double labelW = border.DesiredSize.Width;
+            double labelH = border.DesiredSize.Height;
+            Canvas.SetLeft(border, (minPx + maxPx) / 2.0 - (labelW / 2.0));
+            Canvas.SetTop(border, y - (labelH / 2.0));
+            canvas.Children.Add(border);
+        }
+
+        private void DrawVerticalDimension(Canvas canvas, double y1, double y2, double x, double extXLeft, string label)
+        {
+            double minPy = Math.Min(y1, y2);
+            double maxPy = Math.Max(y1, y2);
+            var stroke = new SolidColorBrush(Color.FromRgb(229, 192, 123));
+            var extStroke = new SolidColorBrush(Color.FromArgb(120, 229, 192, 123));
+
+            // Extension lines
+            canvas.Children.Add(new Line { X1 = extXLeft, Y1 = minPy, X2 = x + 4, Y2 = minPy, Stroke = extStroke, StrokeThickness = 1 });
+            canvas.Children.Add(new Line { X1 = extXLeft, Y1 = maxPy, X2 = x + 4, Y2 = maxPy, Stroke = extStroke, StrokeThickness = 1 });
+
+            // Dimension line
+            canvas.Children.Add(new Line { X1 = x, Y1 = minPy, X2 = x, Y2 = maxPy, Stroke = stroke, StrokeThickness = 1.2 });
+
+            // Ticks
+            canvas.Children.Add(new Line { X1 = x - 3, Y1 = minPy + 3, X2 = x + 3, Y2 = minPy - 3, Stroke = stroke, StrokeThickness = 1.5 });
+            canvas.Children.Add(new Line { X1 = x - 3, Y1 = maxPy + 3, X2 = x + 3, Y2 = maxPy - 3, Stroke = stroke, StrokeThickness = 1.5 });
+
+            // Label with badge
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 34, 39)),
+                BorderBrush = stroke,
+                BorderThickness = new Thickness(0.5),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(4, 1, 4, 1)
+            };
+            border.Child = new TextBlock
+            {
+                Text = label,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = stroke
+            };
+            border.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double labelW = border.DesiredSize.Width;
+            double labelH = border.DesiredSize.Height;
+            Canvas.SetLeft(border, x - (labelW / 2.0));
+            Canvas.SetTop(border, (minPy + maxPy) / 2.0 - (labelH / 2.0));
+            canvas.Children.Add(border);
         }
 
         #endregion

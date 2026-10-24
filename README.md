@@ -20,6 +20,16 @@
   - Full support for `Length`, `Angle`, `Area`, `Volume`, `Integer`, `Number`, `Boolean.YesNo`, `String.Text`, `String.Url`, and `Reference.Material`.
   - Automatic `GroupTypeId` assignment (`Geometry`, `Materials`, `Visibility`, `IdentityData`, `Data`, `Constraints`).
   - Direct parameter association to Extrusion Material (`BuiltInParameter.MATERIAL_ID_PARAM`) and Extrusion Visibility (`BuiltInParameter.IS_VISIBLE_PARAM`).
+- **Interactive 2D Geometry Preview (Plan & Elevation)**:
+  - Real-time CAD-style WPF Canvas rendering of Plan View (top-down X-Y) and Front Elevation View (X-Z).
+  - Dynamic scaling, extrusion color-coding (Host vs Nested Components), reference centerlines, and ground reference level.
+  - Labeled dimension lines with tick marks for overall Width, Depth, and Height.
+  - View layout switcher: Side-by-Side (Plan | Elevation), Plan View Only, and Elevation Only.
+  - Automatically updates whenever presets are chosen, files imported, or schemas edited.
+- **Autodesk Revit Shared Parameter File Exporter**:
+  - Exports official Revit Shared Parameter definition files (`.txt`) with deterministic MD5 GUIDs.
+  - Strict compliance with Autodesk Revit Shared Parameter syntax (`*META`, `*GROUP`, `*PARAM`).
+  - Seamlessly maps schema parameter types to standard Revit types (`LENGTH`, `ANGLE`, `AREA`, `VOLUME`, `NUMBER`, `INTEGER`, `YESNO`, `MATERIAL`, `TEXT`, `URL`).
 - **Live Schema Validation & Diagnostic Pre-Check**:
   - Static analysis engine verifies bounding boxes, coordinates, formula parenthesis balance, and parameter mappings before raising Revit API execution.
   - Interactive validation banner with color-coded status badges and detailed diagnostics.
@@ -76,7 +86,8 @@ ParametricFamilyForge/
 │   ├── GeminiVisionService.cs              # Gemini Vision API client + deterministic fallback
 │   ├── PresetService.cs                    # Built-in presets, JSON export/import, CSV catalog
 │   ├── SchemaValidator.cs                  # Static analysis & pre-generation diagnostic check
-│   └── SettingsService.cs                  # %APPDATA% JSON config persistence
+│   ├── SettingsService.cs                  # %APPDATA% JSON config persistence
+│   └── SharedParameterService.cs          # Revit Shared Parameter file exporter (.txt)
 │
 ├── RevitEngine/
 │   ├── FamilyGenerationHandler.cs          # IExternalEventHandler thread bridge

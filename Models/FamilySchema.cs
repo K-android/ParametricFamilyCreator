@@ -59,6 +59,24 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("host_sweeps")]
         public List<SweepDef> HostSweeps { get; set; } = new();
 
+        /// <summary>
+        /// MEP System Connectors (Pipes, Ducts, Electrical) for MEP building engineering coordination.
+        /// </summary>
+        [JsonPropertyName("mep_connectors")]
+        public List<MepConnectorDef> MepConnectors { get; set; } = new();
+
+        /// <summary>
+        /// 2D Symbolic Linework visible in Floor Plan / RCP / Elevation views (e.g. 90 deg door swings, schematic outlines).
+        /// </summary>
+        [JsonPropertyName("symbolic_curves")]
+        public List<SymbolicCurveDef> SymbolicCurves { get; set; } = new();
+
+        /// <summary>
+        /// Wall / Ceiling Opening cuts for hosted families (e.g. rough door openings, window penetrations).
+        /// </summary>
+        [JsonPropertyName("host_openings")]
+        public List<OpeningDef> HostOpenings { get; set; } = new();
+
         [JsonPropertyName("nested_families")]
         public List<NestedFamilyDef> NestedFamilies { get; set; } = new();
     }
@@ -219,6 +237,19 @@ namespace ParametricFamilyForge.Models
         /// </summary>
         [JsonPropertyName("subcategory")]
         public string? Subcategory { get; set; }
+
+        /// <summary>
+        /// Controls whether the 3D extrusion is visible in Floor Plan and Ref. Level views.
+        /// Set to false when 2D symbolic linework is used to represent the component in plan.
+        /// </summary>
+        [JsonPropertyName("visible_in_plan")]
+        public bool VisibleInPlan { get; set; } = true;
+
+        /// <summary>
+        /// Controls whether the 3D extrusion is visible in coarse detail levels.
+        /// </summary>
+        [JsonPropertyName("visible_in_coarse")]
+        public bool VisibleInCoarse { get; set; } = true;
     }
 
     /// <summary>
@@ -363,6 +394,95 @@ namespace ParametricFamilyForge.Models
         /// </summary>
         [JsonPropertyName("parameter_bindings")]
         public Dictionary<string, string> ParameterBindings { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Defines an MEP system connector (Pipe, Duct, Electrical) for engineering coordination.
+    /// </summary>
+    public class MepConnectorDef
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "Connector";
+
+        /// <summary>
+        /// "Pipe", "Duct", "Electrical", "Conduit"
+        /// </summary>
+        [JsonPropertyName("domain")]
+        public string Domain { get; set; } = "Pipe";
+
+        /// <summary>
+        /// For Pipe: "DomesticColdWater", "DomesticHotWater", "Sanitary", "HydronicSupply", "HydronicReturn", "FireProtectWet", "Other"
+        /// For Duct: "SupplyAir", "ReturnAir", "ExhaustAir", "Other"
+        /// For Electrical: "PowerUnbalanced", "PowerBalanced", "Lighting", "Data"
+        /// </summary>
+        [JsonPropertyName("system_type")]
+        public string SystemType { get; set; } = "DomesticColdWater";
+
+        /// <summary>
+        /// Diameter in millimeters (e.g. 15mm cold water, 40mm sanitary drain).
+        /// </summary>
+        [JsonPropertyName("diameter_mm")]
+        public double Diameter_mm { get; set; } = 15.0;
+
+        /// <summary>
+        /// Spatial 3D attachment point in mm.
+        /// </summary>
+        [JsonPropertyName("origin_offset_mm")]
+        public VectorOffsetDef OriginOffsetMm { get; set; } = new();
+
+        /// <summary>
+        /// Flow direction or normal vector ("Z", "-Z", "Y", "-Y", "X", "-X").
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public string Direction { get; set; } = "-Z";
+    }
+
+    /// <summary>
+    /// Defines 2D symbolic linework visible in Floor Plan / RCP / Elevation views (e.g., door swings, sink outlines).
+    /// </summary>
+    public class SymbolicCurveDef
+    {
+        [JsonPropertyName("curve_type")]
+        public string CurveType { get; set; } = "Line"; // "Line" or "Arc"
+
+        [JsonPropertyName("start_x_mm")]
+        public double StartX_mm { get; set; }
+
+        [JsonPropertyName("start_y_mm")]
+        public double StartY_mm { get; set; }
+
+        [JsonPropertyName("end_x_mm")]
+        public double EndX_mm { get; set; }
+
+        [JsonPropertyName("end_y_mm")]
+        public double EndY_mm { get; set; }
+
+        [JsonPropertyName("center_x_mm")]
+        public double CenterX_mm { get; set; }
+
+        [JsonPropertyName("center_y_mm")]
+        public double CenterY_mm { get; set; }
+
+        [JsonPropertyName("subcategory")]
+        public string? Subcategory { get; set; }
+    }
+
+    /// <summary>
+    /// Defines a wall or ceiling opening cut for host-based families (Doors, Windows).
+    /// </summary>
+    public class OpeningDef
+    {
+        [JsonPropertyName("min_x_mm")]
+        public double MinX_mm { get; set; }
+
+        [JsonPropertyName("max_x_mm")]
+        public double MaxX_mm { get; set; }
+
+        [JsonPropertyName("min_z_mm")]
+        public double MinZ_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("max_z_mm")]
+        public double MaxZ_mm { get; set; } = 2100.0;
     }
 
     public class VectorOffsetDef

@@ -16,6 +16,9 @@ namespace ParametricFamilyForge.Services
         public int ExtrusionCount { get; set; }
         public int BlendCount { get; set; }
         public int SweepCount { get; set; }
+        public int MepConnectorCount { get; set; }
+        public int SymbolicCurveCount { get; set; }
+        public int OpeningCount { get; set; }
         public int NestedFamilyCount { get; set; }
         public int TypeCount { get; set; }
         public int ReferencePlaneCount { get; set; }
@@ -28,6 +31,8 @@ namespace ParametricFamilyForge.Services
                 string geomDetails = $"{ExtrusionCount} Extrusions";
                 if (BlendCount > 0) geomDetails += $", {BlendCount} Blends";
                 if (SweepCount > 0) geomDetails += $", {SweepCount} Sweeps";
+                if (OpeningCount > 0) geomDetails += $", {OpeningCount} Openings";
+                if (MepConnectorCount > 0) geomDetails += $", {MepConnectorCount} MEP Connectors";
                 return $"{status} | {ParameterCount} Parameters, {geomDetails}, {NestedFamilyCount} Nested, {TypeCount} Types";
             }
         }
@@ -107,6 +112,9 @@ namespace ParametricFamilyForge.Services
             report.ExtrusionCount = totalExtrusions;
             report.BlendCount = totalBlends;
             report.SweepCount = totalSweeps;
+            report.MepConnectorCount = schema.MepConnectors?.Count ?? 0;
+            report.SymbolicCurveCount = schema.SymbolicCurves?.Count ?? 0;
+            report.OpeningCount = schema.HostOpenings?.Count ?? 0;
             report.NestedFamilyCount = schema.NestedFamilies?.Count ?? 0;
 
             if (totalExtrusions == 0 && totalBlends == 0 && totalSweeps == 0 && report.NestedFamilyCount == 0)

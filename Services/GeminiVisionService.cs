@@ -2066,6 +2066,63 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 MaterialParameter = "Chrome_Finish"
             });
 
+            // 8. MEP System Engineering Connectors (Water Supply & Waste Drain)
+            schema.MepConnectors = new List<MepConnectorDef>
+            {
+                new()
+                {
+                    Name = "Cold_Water_Supply_Inlet",
+                    Domain = "Pipe",
+                    SystemType = "DomesticColdWater",
+                    Diameter_mm = 15.0,
+                    OriginOffsetMm = new VectorOffsetDef(0, -40, basinBottomZ),
+                    Direction = "-Z"
+                },
+                new()
+                {
+                    Name = "Sanitary_Waste_Drain_Outlet",
+                    Domain = "Pipe",
+                    SystemType = "Sanitary",
+                    Diameter_mm = 40.0,
+                    OriginOffsetMm = new VectorOffsetDef(0, -depth / 2.0, basinBottomZ),
+                    Direction = "-Z"
+                }
+            };
+
+            // 9. 2D Plan Symbolic linework (Clear architectural outline in floor plans)
+            schema.SymbolicCurves = new List<SymbolicCurveDef>
+            {
+                new()
+                {
+                    CurveType = "Arc",
+                    StartX_mm = halfW, StartY_mm = -depth * 0.4,
+                    EndX_mm = -halfW, EndY_mm = -depth * 0.4,
+                    CenterX_mm = 0, CenterY_mm = -depth,
+                    Subcategory = "Basin"
+                },
+                new()
+                {
+                    CurveType = "Line",
+                    StartX_mm = -halfW, StartY_mm = -depth * 0.4,
+                    EndX_mm = -halfW, EndY_mm = 0,
+                    Subcategory = "Basin"
+                },
+                new()
+                {
+                    CurveType = "Line",
+                    StartX_mm = -halfW, StartY_mm = 0,
+                    EndX_mm = halfW, EndY_mm = 0,
+                    Subcategory = "Basin"
+                },
+                new()
+                {
+                    CurveType = "Line",
+                    StartX_mm = halfW, StartY_mm = 0,
+                    EndX_mm = halfW, EndY_mm = -depth * 0.4,
+                    Subcategory = "Basin"
+                }
+            };
+
             return schema;
         }
 
@@ -2075,15 +2132,22 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             {
                 MasterFamilyName = "Parametric_Door_Leaf",
                 FamilyCategory = "Doors",
-                TemplateName = "Metric Generic Model.rft",
+                TemplateName = "Metric Door.rft",
+                Subcategories = new List<string> { "Panel", "Frame/Mullion", "Hardware", "Plan Swing" },
                 MasterParameters = new List<MasterParameterDef>
                 {
                     new() { Name = "Door_Width", DataType = "Length", DefaultValueMm = width },
                     new() { Name = "Door_Height", DataType = "Length", DefaultValueMm = height },
                     new() { Name = "Door_Thickness", DataType = "Length", DefaultValueMm = thickness }
                 },
+                // Host Wall Opening cut: cuts through the host wall automatically in Revit!
+                HostOpenings = new List<OpeningDef>
+                {
+                    new() { MinX_mm = 0, MaxX_mm = width, MinZ_mm = 0, MaxZ_mm = height }
+                },
                 HostExtrusions = new List<ExtrusionDef>
                 {
+                    // 3D Door Leaf (Masked in 2D Floor Plan views so the 2D swing arc takes precedence)
                     new()
                     {
                         Name = "Door_Panel",
@@ -2092,7 +2156,31 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         StartZ_mm = 0, EndZ_mm = height,
                         WidthParameter = "Door_Width",
                         DepthParameter = "Door_Thickness",
-                        HeightParameter = "Door_Height"
+                        HeightParameter = "Door_Height",
+                        Subcategory = "Panel",
+                        VisibleInPlan = false,
+                        VisibleInCoarse = true
+                    }
+                },
+                // 2D Floor Plan Swing Symbology: Standard 90-degree swing arc and open panel line
+                SymbolicCurves = new List<SymbolicCurveDef>
+                {
+                    // 90-degree plan swing arc
+                    new()
+                    {
+                        CurveType = "Arc",
+                        StartX_mm = width, StartY_mm = 0,
+                        EndX_mm = 0, EndY_mm = width,
+                        CenterX_mm = width * 0.707, CenterY_mm = width * 0.707,
+                        Subcategory = "Plan Swing"
+                    },
+                    // Open door leaf line in plan
+                    new()
+                    {
+                        CurveType = "Line",
+                        StartX_mm = 0, StartY_mm = 0,
+                        EndX_mm = 0, EndY_mm = width,
+                        Subcategory = "Plan Swing"
                     }
                 },
                 NestedFamilies = new List<NestedFamilyDef>
@@ -2114,7 +2202,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                                 Radius_mm = 10,
                                 MinX_mm = 0, MaxX_mm = 120,
                                 MinY_mm = 0, MaxY_mm = 20,
-                                StartZ_mm = 0, EndZ_mm = 20
+                                StartZ_mm = 0, EndZ_mm = 20,
+                                Subcategory = "Hardware"
                             }
                         },
                         PlacementOffsetMm = new VectorOffsetDef(width - 80, thickness + 10, 1000),
@@ -2132,12 +2221,18 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             {
                 MasterFamilyName = "Parametric_Window_Casement",
                 FamilyCategory = "Windows",
-                TemplateName = "Metric Generic Model.rft",
+                TemplateName = "Metric Window.rft",
+                Subcategories = new List<string> { "Frame/Mullion", "Glazing", "Hardware" },
                 MasterParameters = new List<MasterParameterDef>
                 {
                     new() { Name = "Window_Width", DataType = "Length", DefaultValueMm = width },
                     new() { Name = "Window_Height", DataType = "Length", DefaultValueMm = height },
                     new() { Name = "Frame_Depth", DataType = "Length", DefaultValueMm = depth }
+                },
+                // Host Wall Opening cut: cuts through the host wall automatically in Revit!
+                HostOpenings = new List<OpeningDef>
+                {
+                    new() { MinX_mm = -halfW, MaxX_mm = halfW, MinZ_mm = 0, MaxZ_mm = height }
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
@@ -2151,14 +2246,27 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         StartZ_mm = 0, EndZ_mm = height,
                         WidthParameter = "Window_Width",
                         DepthParameter = "Frame_Depth",
-                        HeightParameter = "Window_Height"
+                        HeightParameter = "Window_Height",
+                        Subcategory = "Frame/Mullion"
                     },
                     new()
                     {
                         Name = "Glass_Infill",
                         MinX_mm = -halfW + 45, MaxX_mm = halfW - 45,
                         MinY_mm = -6, MaxY_mm = 6,
-                        StartZ_mm = 45, EndZ_mm = height - 45
+                        StartZ_mm = 45, EndZ_mm = height - 45,
+                        Subcategory = "Glazing",
+                        MaterialParameter = "Glass_Material"
+                    }
+                },
+                SymbolicCurves = new List<SymbolicCurveDef>
+                {
+                    new()
+                    {
+                        CurveType = "Line",
+                        StartX_mm = -halfW + 45, StartY_mm = 0,
+                        EndX_mm = halfW - 45, EndY_mm = 0,
+                        Subcategory = "Glazing"
                     }
                 },
                 NestedFamilies = new List<NestedFamilyDef>
@@ -2169,7 +2277,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         TemplateName = "Metric Generic Model.rft",
                         SubExtrusions = new List<ExtrusionDef>
                         {
-                            new() { Name = "Lock_Knob", ProfileType = "Cylinder", Radius_mm = 12, StartZ_mm = 0, EndZ_mm = 25 }
+                            new() { Name = "Lock_Knob", ProfileType = "Cylinder", Radius_mm = 12, StartZ_mm = 0, EndZ_mm = 25, Subcategory = "Hardware" }
                         },
                         PlacementOffsetMm = new VectorOffsetDef(halfW - 55, 0, height / 2.0)
                     }

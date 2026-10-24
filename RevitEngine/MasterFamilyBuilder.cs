@@ -1,3 +1,6 @@
+using Autodesk.Revit.DB.Plumbing;
+using Autodesk.Revit.DB.Mechanical;
+using Autodesk.Revit.DB.Electrical;
 using System.Data;
 using System.Globalization;
 ﻿using System;
@@ -311,6 +314,17 @@ namespace ParametricFamilyForge.RevitEngine
                         catch { }
                     }
                 }
+
+                masterDoc.Regenerate();
+
+                // 4d. Create Wall / Ceiling Opening Cuts (for Doors, Windows, hosted penetrations)
+                CreateHostOpenings(masterDoc, schema.HostOpenings);
+
+                // 4e. Create 2D Symbolic Linework (Plan Swing, Schematic Linework)
+                CreateSymbolicCurves(masterDoc, sketchPlane, schema.SymbolicCurves);
+
+                // 4f. Attach MEP System Connectors (Pipes, Ducts, Electrical)
+                CreateMepConnectors(masterDoc, schema.MepConnectors, createdSolids);
 
                 masterDoc.Regenerate();
 
@@ -870,6 +884,17 @@ namespace ParametricFamilyForge.RevitEngine
                     try { extrusion.Subcategory = subcat; } catch { }
                 }
             }
+
+            try
+            {
+                FamilyElementVisibility vis = new FamilyElementVisibility(FamilyElementVisibilityType.Model);
+                vis.IsShownInCoarse = extDef.VisibleInCoarse;
+                vis.IsShownInMedium = true;
+                vis.IsShownInFine = true;
+                vis.IsShownInPlanRCPCut = extDef.VisibleInPlan;
+                extrusion.SetVisibility(vis);
+            }
+            catch { }
         }
 
         public static Category? EnsureSubcategory(Document doc, string? subcatName)
@@ -1328,6 +1353,235 @@ namespace ParametricFamilyForge.RevitEngine
                 }
             }
         }
+
+        private static void CreateHostOpenings(Document doc, List<OpeningDef>? openings)
+        {
+            if (openings == null || openings.Count == 0) return;
+
+            Wall? hostWall = new FilteredElementCollector(doc)
+                .OfClass(typeof(Wall))
+                .Cast<Wall>()
+                .FirstOrDefault();
+
+            if (hostWall == null) return;
+
+            foreach (var op in openings)
+            {
+                try
+                {
+                    double minX = MmToFeet(op.MinX_mm);
+                    double maxX = MmToFeet(op.MaxX_mm);
+                    double minZ = MmToFeet(op.MinZ_mm);
+                    double maxZ = MmToFeet(op.MaxZ_mm);
+
+                    if (maxX <= minX) maxX = minX + MmToFeet(50.0);
+                    if (maxZ <= minZ) maxZ = minZ + MmToFeet(50.0);
+
+                    CurveArray rect = new CurveArray();
+                    XYZ p0 = new XYZ(minX, 0, minZ);
+                    XYZ p1 = new XYZ(maxX, 0, minZ);
+                    XYZ p2 = new XYZ(maxX, 0, maxZ);
+                    XYZ p3 = new XYZ(minX, 0, maxZ);
+
+                    rect.Append(Line.CreateBound(p0, p1));
+                    rect.Append(Line.CreateBound(p1, p2));
+                    rect.Append(Line.CreateBound(p2, p3));
+                    rect.Append(Line.CreateBound(p3, p0));
+
+                    doc.FamilyCreate.NewOpening(hostWall, rect);
+                }
+                catch { }
+            }
+        }
+
+        private static void CreateSymbolicCurves(Document doc, SketchPlane sketchPlane, List<SymbolicCurveDef>? curves)
+        {
+            if (curves == null || curves.Count == 0) return;
+
+            foreach (var sc in curves)
+            {
+                try
+                {
+                    Curve? c = null;
+                    if (string.Equals(sc.CurveType, "Arc", StringComparison.OrdinalIgnoreCase))
+                    {
+                        XYZ p0 = new XYZ(MmToFeet(sc.StartX_mm), MmToFeet(sc.StartY_mm), 0);
+                        XYZ p1 = new XYZ(MmToFeet(sc.EndX_mm), MmToFeet(sc.EndY_mm), 0);
+                        XYZ pMid = new XYZ(MmToFeet(sc.CenterX_mm), MmToFeet(sc.CenterY_mm), 0);
+                        if (p0.DistanceTo(p1) > 0.005)
+                        {
+                            c = Arc.Create(p0, p1, pMid);
+                        }
+                    }
+                    else
+                    {
+                        XYZ p0 = new XYZ(MmToFeet(sc.StartX_mm), MmToFeet(sc.StartY_mm), 0);
+                        XYZ p1 = new XYZ(MmToFeet(sc.EndX_mm), MmToFeet(sc.EndY_mm), 0);
+                        if (p0.DistanceTo(p1) > 0.005)
+                        {
+                            c = Line.CreateBound(p0, p1);
+                        }
+                    }
+
+                    if (c != null)
+                    {
+                        SymbolicCurve sym = doc.FamilyCreate.NewSymbolicCurve(c, sketchPlane);
+                        if (!string.IsNullOrEmpty(sc.Subcategory))
+                        {
+                            Category? subcat = EnsureSubcategory(doc, sc.Subcategory);
+                            if (subcat != null) { GraphicsStyle? gs = subcat.GetGraphicsStyle(GraphicsStyleType.Projection); if (gs != null) sym.Subcategory = gs; }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private static void CreateMepConnectors(Document doc, List<MepConnectorDef>? connectors, List<CombinableElement> createdSolids)
+        {
+            if (connectors == null || connectors.Count == 0 || createdSolids == null || createdSolids.Count == 0) return;
+
+            Options opt = new Options { ComputeReferences = true };
+
+            foreach (var mep in connectors)
+            {
+                try
+                {
+                    XYZ targetPoint = new XYZ(MmToFeet(mep.OriginOffsetMm.X), MmToFeet(mep.OriginOffsetMm.Y), MmToFeet(mep.OriginOffsetMm.Z));
+                    XYZ targetNormal = ParseNormal(mep.Direction);
+
+                    Reference? faceRef = null;
+
+                    // 1. Find a solid planar face close to the connector origin and normal
+                    foreach (var elem in createdSolids)
+                    {
+                        GeometryElement geom = elem.get_Geometry(opt);
+                        if (geom == null) continue;
+                        foreach (GeometryObject obj in geom)
+                        {
+                            if (obj is Solid s && s.Faces.Size > 0)
+                            {
+                                foreach (Face f in s.Faces)
+                                {
+                                    if (f is PlanarFace pf && pf.Reference != null)
+                                    {
+                                        if (pf.FaceNormal.DotProduct(targetNormal) > 0.7)
+                                        {
+                                            faceRef = pf.Reference;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (faceRef != null) break;
+                        }
+                        if (faceRef != null) break;
+                    }
+
+                    // 2. Fallback: pick any available planar face
+                    if (faceRef == null)
+                    {
+                        foreach (var elem in createdSolids)
+                        {
+                            GeometryElement geom = elem.get_Geometry(opt);
+                            if (geom == null) continue;
+                            foreach (GeometryObject obj in geom)
+                            {
+                                if (obj is Solid s && s.Faces.Size > 0)
+                                {
+                                    foreach (Face f in s.Faces)
+                                    {
+                                        if (f is PlanarFace pf && pf.Reference != null)
+                                        {
+                                            faceRef = pf.Reference;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (faceRef != null) break;
+                            }
+                            if (faceRef != null) break;
+                        }
+                    }
+
+                    if (faceRef == null) continue;
+
+                    string domain = mep.Domain?.ToLowerInvariant() ?? "pipe";
+                    if (domain.Contains("pipe"))
+                    {
+                        PipeSystemType sysType = ResolvePipeSystemType(mep.SystemType);
+                        ConnectorElement conn = ConnectorElement.CreatePipeConnector(doc, sysType, faceRef);
+                        Parameter radParam = conn.get_Parameter(BuiltInParameter.CONNECTOR_RADIUS);
+                        if (radParam != null && !radParam.IsReadOnly)
+                        {
+                            radParam.Set(MmToFeet(mep.Diameter_mm / 2.0));
+                        }
+                    }
+                    else if (domain.Contains("elect"))
+                    {
+                        ElectricalSystemType elecType = ResolveElectricalSystemType(mep.SystemType);
+                        ConnectorElement conn = ConnectorElement.CreateElectricalConnector(doc, elecType, faceRef);
+                    }
+                    else if (domain.Contains("duct"))
+                    {
+                        DuctSystemType ductType = ResolveDuctSystemType(mep.SystemType);
+                        ConnectorElement conn = ConnectorElement.CreateDuctConnector(doc, ductType, ConnectorProfileType.Round, faceRef);
+                        Parameter radParam = conn.get_Parameter(BuiltInParameter.CONNECTOR_RADIUS);
+                        if (radParam != null && !radParam.IsReadOnly)
+                        {
+                            radParam.Set(MmToFeet(mep.Diameter_mm / 2.0));
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private static XYZ ParseNormal(string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return -XYZ.BasisZ;
+            string d = dir!.Trim().ToUpperInvariant();
+            if (d == "Z" || d == "+Z") return XYZ.BasisZ;
+            if (d == "-Z") return -XYZ.BasisZ;
+            if (d == "Y" || d == "+Y") return XYZ.BasisY;
+            if (d == "-Y") return -XYZ.BasisY;
+            if (d == "X" || d == "+X") return XYZ.BasisX;
+            if (d == "-X") return -XYZ.BasisX;
+            return -XYZ.BasisZ;
+        }
+
+        private static PipeSystemType ResolvePipeSystemType(string? typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName)) return PipeSystemType.DomesticColdWater;
+            string t = typeName!.ToLowerInvariant();
+            if (t.Contains("sanit") || t.Contains("waste") || t.Contains("drain")) return PipeSystemType.Sanitary;
+            if (t.Contains("hot")) return PipeSystemType.DomesticHotWater;
+            if (t.Contains("cold")) return PipeSystemType.DomesticColdWater;
+            if (t.Contains("supply")) return PipeSystemType.SupplyHydronic;
+            if (t.Contains("return")) return PipeSystemType.ReturnHydronic;
+            if (t.Contains("fire")) return PipeSystemType.FireProtectWet;
+            return PipeSystemType.DomesticColdWater;
+        }
+
+        private static ElectricalSystemType ResolveElectricalSystemType(string? typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName)) return ElectricalSystemType.PowerCircuit;
+            string t = typeName!.ToLowerInvariant();
+            if (t.Contains("bal")) return ElectricalSystemType.PowerCircuit;
+            if (t.Contains("light")) return ElectricalSystemType.PowerCircuit;
+            if (t.Contains("data")) return ElectricalSystemType.Data;
+            return ElectricalSystemType.PowerCircuit;
+        }
+
+        private static DuctSystemType ResolveDuctSystemType(string? typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName)) return DuctSystemType.SupplyAir;
+            string t = typeName!.ToLowerInvariant();
+            if (t.Contains("ret")) return DuctSystemType.ReturnAir;
+            if (t.Contains("exh")) return DuctSystemType.ExhaustAir;
+            return DuctSystemType.SupplyAir;
+        }
+
 
         private static void PlaceAndBindNestedFamily(
             Document masterDoc,

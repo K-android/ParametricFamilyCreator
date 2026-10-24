@@ -236,7 +236,10 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             parts.Add(new
             {
-                text = $"Generate a complete, non-empty 3D Revit Parametric Family JSON specification.\nUser Design Request: {effectivePrompt}{extractedDocContext}\n\nIMPORTANT: Populate 'host_extrusions' with all 3D solid parts (min_x_mm, max_x_mm, min_y_mm, max_y_mm, start_z_mm, end_z_mm in mm) and 'master_parameters' with non-zero default_value_mm."
+                text = $"Generate a complete, high-fidelity 3D Revit Parametric Family JSON specification.\nUser Design Request: {effectivePrompt}{extractedDocContext}\n\n" +
+                       "AEC ACCURACY & TWO-PASS EXTRACTION INSTRUCTIONS:\n" +
+                       "1. PASS 1 (MEASUREMENTS): Read all drawing callouts, dimension lines, and schedule tables in the drawing views (Plan, Front Elevation, Side Section). Extract exact millimeter dimensions for 'Width', 'Depth', 'Height', 'Rim_Thickness', 'Bowl_Depth', 'Waste_Centerline_Height', 'Pedestal_Width' into 'master_parameters'.\n" +
+                       "2. PASS 2 (REALISTIC 3D GEOMETRY): Do NOT create crude, flat rectangular boxes for sanitaryware or curved architectural fixtures. Use 'profile_type: DShape' or 'Oval' for basin bodies, hollow inner bowl voids ('is_void: true') inset from the rim, tap hole cutouts, and smooth blends ('host_blends') for tapering pedestals."
             });
 
             // 3. Clean up and normalize model name

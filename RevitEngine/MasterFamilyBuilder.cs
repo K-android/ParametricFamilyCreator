@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -260,13 +260,14 @@ namespace ParametricFamilyForge.RevitEngine
                     sketchPlane = SketchPlane.Create(masterDoc, defaultPlane);
                 }
 
+                var createdSolids = new List<CombinableElement>();
                 if (schema.HostExtrusions != null)
                 {
                     foreach (var extDef in schema.HostExtrusions)
                     {
                         try
                         {
-                            CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict);
+                            CreateHostExtrusion(masterDoc, famMgr, sketchPlane, extDef, paramDict, createdSolids);
                         }
                         catch { }
                     }
@@ -547,29 +548,12 @@ namespace ParametricFamilyForge.RevitEngine
             }
         }
 
-        private static void CreateHostExtrusion(
-            Document doc,
-            FamilyManager famMgr,
-            SketchPlane sketchPlane,
-            ExtrusionDef extDef,
-            Dictionary<string, FamilyParameter> paramDict)
+        public static CurveArrArray BuildExtrusionProfile(ExtrusionDef extDef, double minX, double maxX, double minY, double maxY)
         {
-            double minX = MmToFeet(extDef.MinX_mm);
-            double maxX = MmToFeet(extDef.MaxX_mm);
-            double minY = MmToFeet(extDef.MinY_mm);
-            double maxY = MmToFeet(extDef.MaxY_mm);
-            double startZ = MmToFeet(extDef.StartZ_mm);
-            double endZ = MmToFeet(extDef.EndZ_mm);
-
-            // Scale and boundary sanity guards: prevent degenerate zero-area profiles or negative heights
-            if (maxX <= minX) maxX = minX + MmToFeet(10.0);
-            if (maxY <= minY) maxY = minY + MmToFeet(10.0);
-            if (endZ <= startZ) endZ = startZ + MmToFeet(5.0);
-            double extrusionHeight = Math.Max(endZ - startZ, MmToFeet(2.0));
-
             CurveArrArray profile = new CurveArrArray();
+            string pType = extDef.ProfileType?.Trim().ToLowerInvariant() ?? "rectangle";
 
-            if (string.Equals(extDef.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
+            if (pType == "cylinder" || pType == "circle")
             {
                 double centerX = (minX + maxX) / 2.0;
                 double centerY = (minY + maxY) / 2.0;
@@ -585,6 +569,89 @@ namespace ParametricFamilyForge.RevitEngine
                 circleLoop.Append(Arc.Create(pt1, pt2, mid1));
                 circleLoop.Append(Arc.Create(pt2, pt1, mid2));
                 profile.Append(circleLoop);
+
+                if (extDef.WallThickness_mm > 0)
+                {
+                    double wt = MmToFeet(extDef.WallThickness_mm);
+                    double innerRad = radius - wt;
+                    if (innerRad > 0.005)
+                    {
+                        XYZ ipt1 = new XYZ(centerX - innerRad, centerY, 0);
+                        XYZ ipt2 = new XYZ(centerX + innerRad, centerY, 0);
+                        XYZ imid1 = new XYZ(centerX, centerY + innerRad, 0);
+                        XYZ imid2 = new XYZ(centerX, centerY - innerRad, 0);
+                        CurveArray innerCircle = new CurveArray();
+                        innerCircle.Append(Arc.Create(ipt1, ipt2, imid1));
+                        innerCircle.Append(Arc.Create(ipt2, ipt1, imid2));
+                        profile.Append(innerCircle);
+                    }
+                }
+            }
+            else if (pType == "oval" || pType == "ellipse")
+            {
+                double centerX = (minX + maxX) / 2.0;
+                double centerY = (minY + maxY) / 2.0;
+                double radX = Math.Max(Math.Abs(maxX - minX) / 2.0, MmToFeet(5.0));
+                double radY = Math.Max(Math.Abs(maxY - minY) / 2.0, MmToFeet(5.0));
+
+                XYZ center = new XYZ(centerX, centerY, 0);
+                double majorRad = Math.Max(radX, radY);
+                double minorRad = Math.Min(radX, radY);
+                XYZ xVec = radX >= radY ? XYZ.BasisX : XYZ.BasisY;
+                XYZ yVec = radX >= radY ? XYZ.BasisY : XYZ.BasisX;
+
+                CurveArray ovalLoop = new CurveArray();
+                ovalLoop.Append(Ellipse.CreateCurve(center, majorRad, minorRad, xVec, yVec, 0, Math.PI));
+                ovalLoop.Append(Ellipse.CreateCurve(center, majorRad, minorRad, xVec, yVec, Math.PI, 2 * Math.PI));
+                profile.Append(ovalLoop);
+            }
+            else if (pType == "dshape" || pType == "basin" || pType == "bowfront" || pType == "pedestal")
+            {
+                // Flat rear wall line at maxY, straight shoulders, and smooth curved front bow sweeping to minY
+                double ySplit = maxY - (maxY - minY) * 0.40;
+                if (ySplit <= minY + MmToFeet(2.0)) ySplit = (minY + maxY) / 2.0;
+
+                XYZ p1 = new XYZ(minX, ySplit, 0);
+                XYZ p2 = new XYZ(minX, maxY, 0);
+                XYZ p3 = new XYZ(maxX, maxY, 0);
+                XYZ p4 = new XYZ(maxX, ySplit, 0);
+                XYZ pMid = new XYZ((minX + maxX) / 2.0, minY, 0);
+
+                CurveArray dLoop = new CurveArray();
+                dLoop.Append(Line.CreateBound(p1, p2));
+                dLoop.Append(Line.CreateBound(p2, p3));
+                dLoop.Append(Line.CreateBound(p3, p4));
+                dLoop.Append(Arc.Create(p4, p1, pMid));
+                profile.Append(dLoop);
+            }
+            else if (pType == "roundedrectangle" || pType == "fillet" || pType == "filletbox" || extDef.CornerRadius_mm > 0)
+            {
+                double rMm = extDef.CornerRadius_mm > 0 ? extDef.CornerRadius_mm : (extDef.Radius_mm > 0 ? extDef.Radius_mm : 25.0);
+                double r = MmToFeet(rMm);
+                r = Math.Min(r, Math.Min(Math.Abs(maxX - minX) * 0.45, Math.Abs(maxY - minY) * 0.45));
+
+                if (r <= MmToFeet(2.0))
+                {
+                    CurveArray rectLoop = new CurveArray();
+                    rectLoop.Append(Line.CreateBound(new XYZ(minX, minY, 0), new XYZ(maxX, minY, 0)));
+                    rectLoop.Append(Line.CreateBound(new XYZ(maxX, minY, 0), new XYZ(maxX, maxY, 0)));
+                    rectLoop.Append(Line.CreateBound(new XYZ(maxX, maxY, 0), new XYZ(minX, maxY, 0)));
+                    rectLoop.Append(Line.CreateBound(new XYZ(minX, maxY, 0), new XYZ(minX, minY, 0)));
+                    profile.Append(rectLoop);
+                }
+                else
+                {
+                    CurveArray filletLoop = new CurveArray();
+                    filletLoop.Append(Line.CreateBound(new XYZ(minX + r, minY, 0), new XYZ(maxX - r, minY, 0)));
+                    filletLoop.Append(Arc.Create(new XYZ(maxX - r, minY + r, 0), r, 1.5 * Math.PI, 2.0 * Math.PI, XYZ.BasisX, XYZ.BasisY));
+                    filletLoop.Append(Line.CreateBound(new XYZ(maxX, minY + r, 0), new XYZ(maxX, maxY - r, 0)));
+                    filletLoop.Append(Arc.Create(new XYZ(maxX - r, maxY - r, 0), r, 0.0, 0.5 * Math.PI, XYZ.BasisX, XYZ.BasisY));
+                    filletLoop.Append(Line.CreateBound(new XYZ(maxX - r, maxY, 0), new XYZ(minX + r, maxY, 0)));
+                    filletLoop.Append(Arc.Create(new XYZ(minX + r, maxY - r, 0), r, 0.5 * Math.PI, 1.0 * Math.PI, XYZ.BasisX, XYZ.BasisY));
+                    filletLoop.Append(Line.CreateBound(new XYZ(minX, maxY - r, 0), new XYZ(minX, minY + r, 0)));
+                    filletLoop.Append(Arc.Create(new XYZ(minX + r, minY + r, 0), r, 1.0 * Math.PI, 1.5 * Math.PI, XYZ.BasisX, XYZ.BasisY));
+                    profile.Append(filletLoop);
+                }
             }
             else
             {
@@ -620,12 +687,59 @@ namespace ParametricFamilyForge.RevitEngine
                 }
             }
 
+            return profile;
+        }
+
+        private static void CreateHostExtrusion(
+            Document doc,
+            FamilyManager famMgr,
+            SketchPlane sketchPlane,
+            ExtrusionDef extDef,
+            Dictionary<string, FamilyParameter> paramDict,
+            List<CombinableElement> createdSolids)
+        {
+            double minX = MmToFeet(extDef.MinX_mm);
+            double maxX = MmToFeet(extDef.MaxX_mm);
+            double minY = MmToFeet(extDef.MinY_mm);
+            double maxY = MmToFeet(extDef.MaxY_mm);
+            double startZ = MmToFeet(extDef.StartZ_mm);
+            double endZ = MmToFeet(extDef.EndZ_mm);
+
+            // Scale and boundary sanity guards: prevent degenerate zero-area profiles or negative heights
+            if (maxX <= minX) maxX = minX + MmToFeet(10.0);
+            if (maxY <= minY) maxY = minY + MmToFeet(10.0);
+            if (endZ <= startZ) endZ = startZ + MmToFeet(5.0);
+            double extrusionHeight = Math.Max(endZ - startZ, MmToFeet(2.0));
+
+            CurveArrArray profile = BuildExtrusionProfile(extDef, minX, maxX, minY, maxY);
+
+            bool isSolid = !extDef.IsVoid;
             Extrusion extrusion = doc.FamilyCreate.NewExtrusion(
-                true,
+                isSolid,
                 profile,
                 sketchPlane,
                 extrusionHeight
             );
+
+            if (!isSolid)
+            {
+                // Carve out hollow cavities in intersecting solids (e.g. inner wash basin bowl, drain hole, tap hole)
+                foreach (var solid in createdSolids)
+                {
+                    try
+                    {
+                        if (SolidSolidCutUtils.CanElementCutElement(extrusion, solid, out _))
+                        {
+                            SolidSolidCutUtils.AddCutBetweenSolids(doc, solid, extrusion);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                createdSolids.Add(extrusion);
+            }
 
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -175,13 +175,14 @@ namespace ParametricFamilyForge.RevitEngine
                 }
 
                 // 3. Build sub-extrusions
+                var createdSolids = new System.Collections.Generic.List<CombinableElement>();
                 if (nestedDef.SubExtrusions != null)
                 {
                     foreach (var extrusionDef in nestedDef.SubExtrusions)
                     {
                         try
                         {
-                            CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef);
+                            CreateSubExtrusion(familyDoc, famMgr, sketchPlane, extrusionDef, createdSolids);
                         }
                         catch { }
                     }
@@ -204,11 +205,7 @@ namespace ParametricFamilyForge.RevitEngine
             return tempRfaPath;
         }
 
-        private static void CreateSubExtrusion(
-            Document familyDoc, 
-            FamilyManager famMgr, 
-            SketchPlane sketchPlane, 
-            ExtrusionDef extDef)
+        private static void CreateSubExtrusion(Document familyDoc, FamilyManager famMgr, SketchPlane sketchPlane, ExtrusionDef extDef, System.Collections.Generic.List<CombinableElement> createdSolids)
         {
             double minX = MmToFeet(extDef.MinX_mm);
             double maxX = MmToFeet(extDef.MaxX_mm);
@@ -223,65 +220,34 @@ namespace ParametricFamilyForge.RevitEngine
             if (endZ <= startZ) endZ = startZ + MmToFeet(5.0);
             double extrusionHeight = Math.Max(endZ - startZ, MmToFeet(2.0));
 
-            CurveArrArray profile = new CurveArrArray();
+            CurveArrArray profile = MasterFamilyBuilder.BuildExtrusionProfile(extDef, minX, maxX, minY, maxY);
 
-            if (string.Equals(extDef.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
-            {
-                double centerX = (minX + maxX) / 2.0;
-                double centerY = (minY + maxY) / 2.0;
-                double radius = extDef.Radius_mm > 0 ? MmToFeet(extDef.Radius_mm) : Math.Abs(maxX - minX) / 2.0;
-                if (radius <= 0.001) radius = MmToFeet(25.0);
-
-                XYZ pt1 = new XYZ(centerX - radius, centerY, 0);
-                XYZ pt2 = new XYZ(centerX + radius, centerY, 0);
-                XYZ mid1 = new XYZ(centerX, centerY - radius, 0);
-                XYZ mid2 = new XYZ(centerX, centerY + radius, 0);
-
-                CurveArray circleLoop = new CurveArray();
-                circleLoop.Append(Arc.Create(pt1, pt2, mid1));
-                circleLoop.Append(Arc.Create(pt2, pt1, mid2));
-                profile.Append(circleLoop);
-            }
-            else
-            {
-                CurveArray outerLoop = new CurveArray();
-                XYZ p1 = new XYZ(minX, minY, 0);
-                XYZ p2 = new XYZ(maxX, minY, 0);
-                XYZ p3 = new XYZ(maxX, maxY, 0);
-                XYZ p4 = new XYZ(minX, maxY, 0);
-
-                outerLoop.Append(Line.CreateBound(p1, p2));
-                outerLoop.Append(Line.CreateBound(p2, p3));
-                outerLoop.Append(Line.CreateBound(p3, p4));
-                outerLoop.Append(Line.CreateBound(p4, p1));
-                profile.Append(outerLoop);
-
-                if (extDef.WallThickness_mm > 0 || string.Equals(extDef.ProfileType, "HollowBox", StringComparison.OrdinalIgnoreCase))
-                {
-                    double wt = extDef.WallThickness_mm > 0 ? MmToFeet(extDef.WallThickness_mm) : MmToFeet(5.0);
-                    if ((maxX - minX) > 2 * wt && (maxY - minY) > 2 * wt)
-                    {
-                        CurveArray innerLoop = new CurveArray();
-                        XYZ ip1 = new XYZ(minX + wt, minY + wt, 0);
-                        XYZ ip2 = new XYZ(maxX - wt, minY + wt, 0);
-                        XYZ ip3 = new XYZ(maxX - wt, maxY - wt, 0);
-                        XYZ ip4 = new XYZ(minX + wt, maxY - wt, 0);
-
-                        innerLoop.Append(Line.CreateBound(ip1, ip4));
-                        innerLoop.Append(Line.CreateBound(ip4, ip3));
-                        innerLoop.Append(Line.CreateBound(ip3, ip2));
-                        innerLoop.Append(Line.CreateBound(ip2, ip1));
-                        profile.Append(innerLoop);
-                    }
-                }
-            }
-
+            bool isSolid = !extDef.IsVoid;
             Extrusion extrusion = familyDoc.FamilyCreate.NewExtrusion(
-                true,
+                isSolid,
                 profile,
                 sketchPlane,
                 extrusionHeight
             );
+
+            if (!isSolid)
+            {
+                foreach (var solid in createdSolids)
+                {
+                    try
+                    {
+                        if (SolidSolidCutUtils.CanElementCutElement(extrusion, solid, out _))
+                        {
+                            SolidSolidCutUtils.AddCutBetweenSolids(familyDoc, solid, extrusion);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                createdSolids.Add(extrusion);
+            }
 
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);

@@ -153,6 +153,19 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("radius_mm")]
         public double Radius_mm { get; set; } = 0.0;
 
+        /// <summary>
+        /// Corner fillet radius in mm for "RoundedRectangle" or "Fillet" profile types.
+        /// </summary>
+        [JsonPropertyName("corner_radius_mm")]
+        public double CornerRadius_mm { get; set; } = 0.0;
+
+        /// <summary>
+        /// When true, creates a void extrusion that cuts intersecting solid geometry
+        /// (e.g. inner basin bowl cavity, tap holes, waste drain holes, door vision lites).
+        /// </summary>
+        [JsonPropertyName("is_void")]
+        public bool IsVoid { get; set; } = false;
+
         [JsonPropertyName("wall_thickness_mm")]
         public double WallThickness_mm { get; set; } = 0.0;
 

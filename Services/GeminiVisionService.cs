@@ -55,49 +55,76 @@ DEEP VISUAL & MULTIMODAL CONTEXT ANALYSIS RULES:
 1. VISUAL INSPECTION OF IMAGES & PDF DRAWINGS:
    - Carefully examine ALL visual images, product photographs, 3D isometric renders, and 2D orthographic drawings (Plan/Top View, Front Elevation, Side Elevation, Section Details) inside the attached PDF or image.
    - Read dimension leader lines, extension arrows, scale bars, section callouts, schedule tables, and title-block metadata.
-   - Translate visual features into 3D solids: e.g., if the image shows a table with a top slab, modesty panel, and 4 cylindrical legs, or a door with a perimeter frame, vision lite glazing, kickplate, and lever hardware, model each visible part as an explicit 3D solid in 'host_extrusions' and 'nested_families'.
-2. INPUT PRIORITY:
+   - Decompose visual features into realistic, architectural 3D solids and voids.
+
+2. ARCHITECTURAL REALISM & CURVED PROFILES (NO CRUDE MINECRAFT BLOCKS!):
+   - NEVER create crude, generic, stacked rectangular boxes for sanitaryware, curved furniture, or ergonomic architectural fixtures.
+   - For Washbasins, Sinks, Vanities & Toilets:
+     * Use 'profile_type: DShape' or 'Oval' for the outer basin body (flat back wall against the bathroom wall, curved bow-front sweeping around the front).
+     * ALWAYS model the inner recessed bowl cavity as a VOID extrusion ('is_void: true', profile_type 'DShape' or 'Oval', inset ~30-40mm from the rim) carving down into the basin body so the bowl is genuinely hollowed out!
+     * ALWAYS add a faucet tap hole cutout ('profile_type: Cylinder', 'is_void: true', radius_mm: 18) and a drain hole cutout ('profile_type: Cylinder', 'is_void: true', radius_mm: 23).
+     * If the sheet specifies a half-pedestal, full pedestal, or trap shroud, model it with 'profile_type: DShape' or 'Oval' tapering underneath the basin against the wall.
+   - For Furniture & Countertops:
+     * Use 'profile_type: RoundedRectangle' with 'corner_radius_mm' (e.g. 25-50mm) for smooth filleted desktop corners, or 'Oval' / 'Cylinder' for round tables.
+
+3. SUPPORTED PROFILE TYPES:
+   - 'Rectangle': standard rectangular profile.
+   - 'RoundedRectangle': filleted rectangle with smooth corner arcs (specify 'corner_radius_mm').
+   - 'Cylinder': circle/tube (specify 'radius_mm' or min_x/max_x).
+   - 'Oval' or 'Ellipse': smooth closed ellipse for oval bowls, sinks, tables.
+   - 'DShape' or 'Basin': flat rear edge against the wall, curved front bow for wash basins, sinks, toilets, vanities, curved reception counters.
+   - 'HollowBox': outer rectangle with inner hollow core (specify 'wall_thickness_mm').
+   - 'is_void': set to true on any extrusion to make it a VOID that carves out openings, cavities, inner bowls, or holes in solid geometry.
+
+4. INPUT PRIORITY & UNIT CONVERSION:
    - If the user provides BOTH a prompt and a PDF/image: combine the visual geometry and context from the PDF/image with the user's prompt, letting explicit numbers in the user's prompt override specific dimensions.
-   - If the user provides ONLY a PDF/image (empty or brief prompt): infer the complete product name, category, overall Width, Depth, Height, thickness, and all visible 3D sub-parts directly from the images and text inside the sheet.
-   - If the user provides ONLY a text prompt: synthesize the complete architectural component and infer standard ergonomic/architectural dimensions for any unspecified values.
-2. UNIT CONVERSION:
    - Convert all dimensions to millimeters (1 inch = 25.4 mm, 1 foot = 304.8 mm, 1 cm = 10 mm, 1 m = 1000 mm).
-3. NON-EMPTY 3D GEOMETRY REQUIREMENT (CRITICAL):
-   - 'host_extrusions' MUST NEVER BE EMPTY. You MUST decompose the component into 2 to 10 realistic 3D solid extrusions (e.g. frames, panels, glazing, tabletop, legs, shelves, baseplates, shafts, capitals) with explicit non-zero bounding boxes (min_x_mm < max_x_mm, min_y_mm < max_y_mm, start_z_mm < end_z_mm).
-   - Center-symmetric families have origin (0,0,0) at Center Left/Right and Center Front/Back on Reference Level (min_x_mm = -Width/2, max_x_mm = +Width/2, min_y_mm = -Depth/2, max_y_mm = +Depth/2).
-4. EXACT JSON SCHEMA FORMAT (USE THESE EXACT SNAKE_CASE FIELD NAMES):
+
+5. EXACT JSON SCHEMA FORMAT (USE THESE EXACT SNAKE_CASE FIELD NAMES):
 {
   ""master_family_name"": ""Parametric_Component_Name"",
-  ""family_category"": ""Doors | Windows | Furniture | Casework | Columns | Generic Models | Specialty Equipment"",
-  ""template_name"": ""Metric Generic Model.rft"",
+  ""family_category"": ""Plumbing Fixtures | Furniture | Doors | Windows | Casework | Generic Models"",
+  ""template_name"": ""Metric Generic Model.rft | Metric Plumbing Fixture.rft"",
   ""master_parameters"": [
-    { ""name"": ""Width"", ""data_type"": ""Length"", ""default_value_mm"": 1200, ""is_instance"": false, ""formula"": null },
-    { ""name"": ""Depth"", ""data_type"": ""Length"", ""default_value_mm"": 600, ""is_instance"": false, ""formula"": null },
-    { ""name"": ""Height"", ""data_type"": ""Length"", ""default_value_mm"": 750, ""is_instance"": false, ""formula"": null },
-    { ""name"": ""Thickness"", ""data_type"": ""Length"", ""default_value_mm"": 30, ""is_instance"": false, ""formula"": null }
+    { ""name"": ""Width"", ""data_type"": ""Length"", ""default_value_mm"": 550, ""is_instance"": false, ""formula"": null },
+    { ""name"": ""Depth"", ""data_type"": ""Length"", ""default_value_mm"": 420, ""is_instance"": false, ""formula"": null },
+    { ""name"": ""Height"", ""data_type"": ""Length"", ""default_value_mm"": 450, ""is_instance"": false, ""formula"": null }
   ],
   ""reference_planes"": [
-    { ""name"": ""Left_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": -600, ""driven_by_parameter"": ""Width"" },
-    { ""name"": ""Right_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": 600, ""driven_by_parameter"": ""Width"" },
-    { ""name"": ""Front_Plane"", ""orientation"": ""Y"", ""offset_from_origin_mm"": -300, ""driven_by_parameter"": ""Depth"" },
-    { ""name"": ""Back_Plane"", ""orientation"": ""Y"", ""offset_from_origin_mm"": 300, ""driven_by_parameter"": ""Depth"" },
-    { ""name"": ""Top_Plane"", ""orientation"": ""Z"", ""offset_from_origin_mm"": 750, ""driven_by_parameter"": ""Height"" }
+    { ""name"": ""Left_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": -275, ""driven_by_parameter"": ""Width"" },
+    { ""name"": ""Right_Plane"", ""orientation"": ""X"", ""offset_from_origin_mm"": 275, ""driven_by_parameter"": ""Width"" },
+    { ""name"": ""Back_Wall"", ""orientation"": ""Y"", ""offset_from_origin_mm"": 0, ""driven_by_parameter"": null },
+    { ""name"": ""Front_Edge"", ""orientation"": ""Y"", ""offset_from_origin_mm"": -420, ""driven_by_parameter"": ""Depth"" },
+    { ""name"": ""Top_Plane"", ""orientation"": ""Z"", ""offset_from_origin_mm"": 450, ""driven_by_parameter"": ""Height"" }
   ],
   ""host_extrusions"": [
     {
-      ""name"": ""Main_Panel_Or_Frame"",
-      ""profile_type"": ""Rectangle | Cylinder | HollowBox"",
-      ""min_x_mm"": -600,
-      ""max_x_mm"": 600,
-      ""min_y_mm"": -300,
-      ""max_y_mm"": 300,
+      ""name"": ""Basin_Outer_Body"",
+      ""profile_type"": ""DShape | Oval | RoundedRectangle | Cylinder | Rectangle"",
+      ""is_void"": false,
+      ""corner_radius_mm"": 0,
+      ""min_x_mm"": -275,
+      ""max_x_mm"": 275,
+      ""min_y_mm"": -420,
+      ""max_y_mm"": 0,
       ""radius_mm"": 0,
       ""wall_thickness_mm"": 0,
-      ""start_z_mm"": 720,
-      ""end_z_mm"": 750,
+      ""start_z_mm"": 270,
+      ""end_z_mm"": 450,
       ""width_parameter"": ""Width"",
       ""depth_parameter"": ""Depth"",
       ""height_parameter"": ""Height""
+    },
+    {
+      ""name"": ""Basin_Inner_Bowl_Void"",
+      ""profile_type"": ""DShape"",
+      ""is_void"": true,
+      ""min_x_mm"": -240,
+      ""max_x_mm"": 240,
+      ""min_y_mm"": -380,
+      ""max_y_mm"": -75,
+      ""start_z_mm"": 300,
+      ""end_z_mm"": 455
     }
   ],
   ""nested_families"": [
@@ -545,6 +572,22 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 return null;
             }
 
+            bool? TryBool(JsonElement el, params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    foreach (var prop in el.EnumerateObject())
+                    {
+                        if (prop.Name.Equals(k, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (prop.Value.ValueKind == JsonValueKind.True) return true;
+                            if (prop.Value.ValueKind == JsonValueKind.False) return false;
+                        }
+                    }
+                }
+                return null;
+            }
+
             double? TryNum(JsonElement el, params string[] keys)
             {
                 foreach (var k in keys)
@@ -651,10 +694,20 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
                                 if (maxX > minX || maxY > minY || endZ > startZ)
                                 {
+                                    bool? isV = TryBool(item, "is_void", "isVoid", "void");
+                                    if (!isV.HasValue)
+                                    {
+                                        bool? isS = TryBool(item, "is_solid", "isSolid", "solid");
+                                        if (isS.HasValue && !isS.Value) isV = true;
+                                    }
+                                    double? cR = TryNum(item, "corner_radius_mm", "cornerRadiusMm", "corner_radius", "cornerRadius", "fillet_mm", "filletMm", "fillet");
+
                                     schema.HostExtrusions.Add(new ExtrusionDef
                                     {
                                         Name = TryStr(item, "name", "id", "label", "part") ?? $"Part_{schema.HostExtrusions.Count + 1}",
                                         ProfileType = TryStr(item, "profile_type", "profileType", "profile", "shape") ?? "Rectangle",
+                                        IsVoid = isV ?? false,
+                                        CornerRadius_mm = cR ?? 0,
                                         MinX_mm = minX,
                                         MaxX_mm = maxX,
                                         MinY_mm = minY,
@@ -733,6 +786,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
                     enriched = cat switch
                     {
+                        "basin" => CreateBasinSchema(w, d, h, t, $"{userPrompt} {schema.MasterFamilyName}"),
+                        "plumbing" => CreateBasinSchema(w, d, h, t, $"{userPrompt} {schema.MasterFamilyName}"),
                         "door" => CreateDoorSchema(w, h, t),
                         "window" => CreateWindowSchema(w, h, d),
                         "chair" => CreateChairSchema(w, d, h, t),
@@ -756,6 +811,29 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
                 schema.HostExtrusions = enriched.HostExtrusions;
                 schema.NestedFamilies = enriched.NestedFamilies;
+            }
+
+            // Architectural Realism Guard for Basins & Sinks:
+            // If the model classified the product as a basin/sink/plumbing fixture, but only returned flat rectangular boxes without any curves or void cavities,
+            // upgrade the geometry to use DShape outer rim, hollow recessed inner bowl void, tap hole, and drain cutouts!
+            string lowerName = $"{schema.MasterFamilyName} {schema.FamilyCategory} {userPrompt}".ToLowerInvariant();
+            bool isBasinType = lowerName.Contains("basin") || lowerName.Contains("sink") || lowerName.Contains("lavatory");
+            if (isBasinType && schema.HostExtrusions.Count > 0 && !schema.HostExtrusions.Any(e => e.IsVoid))
+            {
+                double maxW = schema.HostExtrusions.Max(e => Math.Abs(e.MaxX_mm - e.MinX_mm));
+                double maxD = schema.HostExtrusions.Max(e => Math.Abs(e.MaxY_mm - e.MinY_mm));
+                double topZ = schema.HostExtrusions.Max(e => Math.Max(e.StartZ_mm, e.EndZ_mm));
+
+                double w = aiW >= 50 ? aiW : (maxW >= 50 ? maxW : 550);
+                double d = aiD >= 50 ? aiD : (maxD >= 50 ? maxD : 420);
+                double h = aiH >= 50 ? aiH : (topZ >= 50 ? topZ : 450);
+
+                var realisticBasin = CreateBasinSchema(w, d, h, aiT, $"{userPrompt} {schema.MasterFamilyName}");
+                schema.HostExtrusions = realisticBasin.HostExtrusions;
+                if (schema.NestedFamilies.Count == 0)
+                {
+                    schema.NestedFamilies = realisticBasin.NestedFamilies;
+                }
             }
         }
 
@@ -810,6 +888,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             string nameSource = !string.IsNullOrWhiteSpace(prompt) ? prompt : docText;
             switch (category)
             {
+                case "basin": return CreateBasinSchema(w, dep, h, t, nameSource);
+                case "plumbing": return CreateBasinSchema(w, dep, h, t, nameSource);
                 case "door": return CreateDoorSchema(w, h, t);
                 case "window": return CreateWindowSchema(w, h, dep);
                 case "chair": return CreateChairSchema(w, dep, h, t);
@@ -843,16 +923,20 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             ["baseplate"] = new DimDefaults(300, 300, 300, 25,      80, 1500,   80, 1500,   50, 2000),
             ["canopy"]    = new DimDefaults(2000, 1200, 400, 100,  500, 15000, 300, 6000,   50, 3000),
             ["column"]    = new DimDefaults(400, 400, 3000, 50,     75, 2000,   75, 2000,  500, 15000),
+            ["basin"]     = new DimDefaults(550, 420, 450, 25,     300, 1600,  250, 900,   150, 1200),
+            ["plumbing"]  = new DimDefaults(400, 600, 800, 30,     250, 2000,  300, 2200,  200, 1500),
             ["generic"]   = new DimDefaults(1000, 600, 900, 25,     10, 20000,  10, 20000,  10, 20000),
         };
 
         private static readonly (string cat, string[] words)[] CategoryKeywords =
         {
+            ("basin", new[] { "basin", "washbasin", "sink", "lavatory", "pedestal", "vanity", "wash basin", "hand basin", "cloakroom" }),
+            ("plumbing", new[] { "toilet", "wc", "urinal", "bidet", "bathtub", "shower", "water closet", "plumbing" }),
             ("door", new[] { "door", "gate", "entryway", "doorset", "door leaf" }),
             ("window", new[] { "window", "louver", "louvre", "glazing", "casement", "skylight", "fenestration" }),
             ("chair", new[] { "chair", "armchair", "sofa", "couch", "stool", "bench", "ottoman", "seating", "lounge" }),
             ("table", new[] { "table", "desk", "workstation", "counter", "worktop" }),
-            ("casework", new[] { "cabinet", "shelf", "shelving", "bookcase", "wardrobe", "cupboard", "drawer", "casework", "storage", "locker", "credenza", "vanity" }),
+            ("casework", new[] { "cabinet", "shelf", "shelving", "bookcase", "wardrobe", "cupboard", "drawer", "casework", "storage", "locker", "credenza" }),
             ("baseplate", new[] { "baseplate", "base plate", "bracket", "gusset", "flange", "anchor bolt", "end plate" }),
             ("canopy", new[] { "canopy", "trellis", "pergola", "sunshade", "brise", "awning", "overhang" }),
             ("column", new[] { "column", "pillar", "pier", "stanchion", "bollard" }),
@@ -862,7 +946,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
         private static string? DetectCategory(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return null;
-            string lower = text.ToLowerInvariant();
+            string lower = text.ToLowerInvariant().Replace('_', ' ').Replace('-', ' ');
             string? best = null;
             int bestHits = 0;
             foreach (var (cat, words) in CategoryKeywords)
@@ -914,7 +998,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             var r = new ParsedDims();
             if (string.IsNullOrWhiteSpace(rawText)) return r;
 
-            string text = NormalizeImperial(rawText);
+            string text = NormalizeImperial(rawText).Replace('_', ' ');
             string? docUnit = DominantUnit(text);
             var defs = CategoryDefaults[category];
 
@@ -1775,6 +1859,184 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     }
                 }
             };
+        }
+
+        private FamilySchema CreateBasinSchema(double width, double depth, double height, double rimThk, string promptOrDoc)
+        {
+            string familyName = CleanPromptToFamilyName(promptOrDoc);
+            if (string.IsNullOrWhiteSpace(familyName) || familyName == "Parametric_Custom_Component")
+            {
+                familyName = "Parametric_Wash_Basin_With_Pedestal";
+            }
+
+            double halfW = width / 2.0;
+            string lower = promptOrDoc.ToLowerInvariant();
+            bool hasPedestal = lower.Contains("pedestal") || lower.Contains("shroud") || lower.Contains("trap");
+            bool isHalfPedestal = lower.Contains("half") || lower.Contains("semi") || lower.Contains("wall hung") || lower.Contains("wall-hung") || (!lower.Contains("full pedestal"));
+            bool isOval = lower.Contains("oval") || lower.Contains("ellipse") || lower.Contains("round");
+
+            string rimProfile = isOval ? "Oval" : "DShape";
+            double basinBodyHeight = Math.Min(180.0, height * 0.45);
+            double basinTopZ = height;
+            double basinBottomZ = height - basinBodyHeight;
+            double bowlDepth = Math.Min(150.0, basinBodyHeight - 20.0);
+
+            var schema = new FamilySchema
+            {
+                MasterFamilyName = familyName,
+                FamilyCategory = "Plumbing Fixtures",
+                TemplateName = "Metric Plumbing Fixture.rft",
+                Description = "High-fidelity parametric architectural wash basin with hollow inner bowl, faucet cutout, drain, and half-pedestal shroud.",
+                MasterParameters = new List<MasterParameterDef>
+                {
+                    new() { Name = "Width", DataType = "Length", DefaultValueMm = width },
+                    new() { Name = "Depth", DataType = "Length", DefaultValueMm = depth },
+                    new() { Name = "Height", DataType = "Length", DefaultValueMm = height },
+                    new() { Name = "Rim_Thickness", DataType = "Length", DefaultValueMm = rimThk > 0 ? rimThk : 25.0 },
+                    new() { Name = "Bowl_Depth", DataType = "Length", DefaultValueMm = bowlDepth }
+                },
+                ReferencePlanes = new List<ReferencePlaneDef>
+                {
+                    new() { Name = "Left_Plane", Orientation = "X", OffsetFromOriginMm = -halfW, DrivenByParameter = "Width" },
+                    new() { Name = "Right_Plane", Orientation = "X", OffsetFromOriginMm = halfW, DrivenByParameter = "Width" },
+                    new() { Name = "Back_Wall", Orientation = "Y", OffsetFromOriginMm = 0, DrivenByParameter = null },
+                    new() { Name = "Front_Edge", Orientation = "Y", OffsetFromOriginMm = -depth, DrivenByParameter = "Depth" },
+                    new() { Name = "Basin_Rim_Elevation", Orientation = "Z", OffsetFromOriginMm = height, DrivenByParameter = "Height" }
+                },
+                HostExtrusions = new List<ExtrusionDef>
+                {
+                    // 1. Outer Ceramic Basin Body (Smooth D-Shape or Oval)
+                    new()
+                    {
+                        Name = "Basin_Outer_Rim",
+                        ProfileType = rimProfile,
+                        MinX_mm = -halfW,
+                        MaxX_mm = halfW,
+                        MinY_mm = -depth,
+                        MaxY_mm = 0,
+                        StartZ_mm = basinBottomZ,
+                        EndZ_mm = basinTopZ,
+                        WidthParameter = "Width",
+                        DepthParameter = "Depth",
+                        HeightParameter = "Height",
+                        MaterialParameter = "Ceramic_Material"
+                    },
+                    // 2. Inner Hollow Basin Bowl (VOID Extrusion: Carves out the bowl cavity!)
+                    new()
+                    {
+                        Name = "Basin_Inner_Bowl_Void",
+                        ProfileType = rimProfile,
+                        IsVoid = true,
+                        MinX_mm = -halfW + 35.0,
+                        MaxX_mm = halfW - 35.0,
+                        MinY_mm = -depth + 35.0,
+                        MaxY_mm = -75.0, // leaves rear tap deck platform
+                        StartZ_mm = basinTopZ - bowlDepth,
+                        EndZ_mm = basinTopZ + 10.0 // cuts through the top face cleanly
+                    },
+                    // 3. Faucet Tap Hole (VOID Extrusion: 35mm dia tap hole on rear deck)
+                    new()
+                    {
+                        Name = "Faucet_Tap_Hole_Void",
+                        ProfileType = "Cylinder",
+                        IsVoid = true,
+                        MinX_mm = -18,
+                        MaxX_mm = 18,
+                        MinY_mm = -58,
+                        MaxY_mm = -22,
+                        Radius_mm = 18,
+                        StartZ_mm = basinBottomZ - 20,
+                        EndZ_mm = basinTopZ + 10
+                    },
+                    // 4. Waste Drain Hole (VOID Extrusion: 46mm dia waste hole in bottom of bowl)
+                    new()
+                    {
+                        Name = "Waste_Drain_Hole_Void",
+                        ProfileType = "Cylinder",
+                        IsVoid = true,
+                        MinX_mm = -23,
+                        MaxX_mm = 23,
+                        MinY_mm = (-depth / 2.0) - 23,
+                        MaxY_mm = (-depth / 2.0) + 23,
+                        Radius_mm = 23,
+                        StartZ_mm = basinBottomZ - 20,
+                        EndZ_mm = basinTopZ - bowlDepth + 15
+                    }
+                },
+                NestedFamilies = new List<NestedFamilyDef>()
+            };
+
+            // 5. Half-Pedestal or Full-Pedestal Shroud
+            if (hasPedestal)
+            {
+                double pedW = Math.Min(220.0, width * 0.40);
+                double pedD = Math.Min(250.0, depth * 0.55);
+                double pedStartZ = isHalfPedestal ? Math.Max(50.0, basinBottomZ - 260.0) : 0;
+                double pedEndZ = basinBottomZ + 10.0; // joins seamlessly into basin underside
+
+                schema.HostExtrusions.Add(new ExtrusionDef
+                {
+                    Name = isHalfPedestal ? "Half_Pedestal_Shroud" : "Full_Pedestal_Column",
+                    ProfileType = "DShape",
+                    MinX_mm = -pedW / 2.0,
+                    MaxX_mm = pedW / 2.0,
+                    MinY_mm = -pedD,
+                    MaxY_mm = 0,
+                    StartZ_mm = pedStartZ,
+                    EndZ_mm = pedEndZ,
+                    MaterialParameter = "Ceramic_Material"
+                });
+            }
+
+            // 6. Chrome Mixer Faucet Nested Component
+            schema.NestedFamilies.Add(new NestedFamilyDef
+            {
+                NestedFamilyName = $"{familyName}_Chrome_Faucet",
+                TemplateName = "Metric Generic Model.rft",
+                SubExtrusions = new List<ExtrusionDef>
+                {
+                    // Vertical cylindrical tap body
+                    new()
+                    {
+                        Name = "Faucet_Body",
+                        ProfileType = "Cylinder",
+                        Radius_mm = 22,
+                        StartZ_mm = 0,
+                        EndZ_mm = 110,
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // Curved forward spout
+                    new()
+                    {
+                        Name = "Faucet_Spout",
+                        ProfileType = "Cylinder",
+                        MinX_mm = -12,
+                        MaxX_mm = 12,
+                        MinY_mm = -75,
+                        MaxY_mm = 0,
+                        Radius_mm = 12,
+                        StartZ_mm = 90,
+                        EndZ_mm = 110,
+                        MaterialParameter = "Chrome_Finish"
+                    },
+                    // Single lever handle on top
+                    new()
+                    {
+                        Name = "Faucet_Lever",
+                        ProfileType = "Rectangle",
+                        MinX_mm = -7,
+                        MaxX_mm = 7,
+                        MinY_mm = -40,
+                        MaxY_mm = 10,
+                        StartZ_mm = 110,
+                        EndZ_mm = 120,
+                        MaterialParameter = "Chrome_Finish"
+                    }
+                },
+                PlacementOffsetMm = new VectorOffsetDef(0, -40, basinTopZ)
+            });
+
+            return schema;
         }
 
         private FamilySchema CreateDoorSchema(double width = 900, double height = 2100, double thickness = 44)

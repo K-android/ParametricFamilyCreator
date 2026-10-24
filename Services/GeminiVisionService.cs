@@ -314,6 +314,244 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 "All Gemini 3 / Gemini 4 models failed:\n  • " + string.Join("\n  • ", errors));
         }
 
+        /// <summary>
+        /// Iteratively refines and sculpts an existing Revit family schema based on conversational user instructions
+        /// (e.g. "make bowl 25mm deeper", "add overflow hole", "wall-hung without pedestal", "adjust tap spout").
+        /// </summary>
+        public async Task<FamilySchema> RefineFamilySchemaAsync(
+            string apiKey, 
+            FamilySchema currentSchema, 
+            string refinementPrompt, 
+            string modelName = DefaultGeminiModel,
+            double temperature = 0.2,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return ApplyDeterministicRefinement(currentSchema, refinementPrompt);
+            }
+
+            string currentJson = JsonSerializer.Serialize(currentSchema, new JsonSerializerOptions { WriteIndented = true });
+            var parts = new List<object>
+            {
+                new
+                {
+                    text = "CONVERSATIONAL GEOMETRY REFINEMENT TASK:\n" +
+                           $"User Modification Request: {refinementPrompt.Trim()}\n\n" +
+                           "CURRENT FAMILY SCHEMA JSON (TO BE REFINED):\n" +
+                           currentJson + "\n\n" +
+                           "REFINEMENT DIRECTIVES:\n" +
+                           "1. Modify ONLY the requested dimensions, geometry, reference planes, or parameters to satisfy the user's refinement instruction.\n" +
+                           "2. Retain all existing valid components, blends, sweeps, subcategories, and MEP connectors that were not requested to change.\n" +
+                           "3. For voids (e.g. inner bowl cavity, tap/drain holes, vision lites): ALWAYS ensure is_void remains true, and ensure start_z_mm/end_z_mm and bounding boxes cleanly intersect and cut the solid geometry.\n" +
+                           "4. For blends: maintain valid bottom and top profile coordinates with appropriate sloped transitions.\n" +
+                           "5. Return ONLY the complete updated FamilySchema JSON object with all fields intact."
+                }
+            };
+
+            string requestedModel = NormalizeModelName(modelName);
+            var available = await GetAvailableModelsAsync(apiKey, cancellationToken);
+            var candidates = BuildCandidateList(requestedModel, available);
+
+            var errors = new List<string>();
+
+            foreach (var targetModel in candidates)
+            {
+                ReportStatus($"💬 Refining geometry with AI model: {targetModel}...");
+                string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
+                string requestJson = BuildRequestPayload(parts, temperature);
+
+                try
+                {
+                    using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+                    using var requestCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, requestCts.Token);
+
+                    var response = await _httpClient.PostAsync(endpoint, content, linked.Token);
+                    string responseBody = await response.Content.ReadAsStringAsync();
+
+                    if (IsAuthError(response.StatusCode, responseBody))
+                    {
+                        throw new GeminiAuthException(
+                            $"Gemini API key rejected ({(int)response.StatusCode}): {ExtractApiErrorMessage(responseBody)}\n\n" +
+                            "Check your API key in Settings (get a free key at https://aistudio.google.com/apikey).");
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        int code = (int)response.StatusCode;
+                        string detail = ExtractApiErrorMessage(responseBody);
+                        errors.Add($"[{targetModel}] HTTP {code} {DescribeStatus(code)}: {detail}");
+                        continue;
+                    }
+
+                    var refinedSchema = ParseGeminiResponse(responseBody, refinementPrompt);
+                    LastUsedModel = targetModel;
+                    ReportStatus($"✨ Geometry refinement complete ({targetModel})!");
+                    return refinedSchema;
+                }
+                catch (GeminiAuthException) { throw; }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    errors.Add($"[{targetModel}] timed out after 90s.");
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    errors.Add($"[{targetModel}] network error: {httpEx.Message}");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"[{targetModel}] error: {ex.Message}");
+                }
+            }
+
+            // Fallback to deterministic offline refinement if cloud AI models failed
+            ReportStatus("⚠ Cloud AI refinement unavailable; applied deterministic local rule refinement.");
+            return ApplyDeterministicRefinement(currentSchema, refinementPrompt);
+        }
+
+        /// <summary>
+        /// Offline rule-based conversational refinement engine.
+        /// Parses natural language requests (e.g. "+25mm bowl depth", "wall-hung", "overflow", "width 700") without API key.
+        /// </summary>
+        public FamilySchema ApplyDeterministicRefinement(FamilySchema schema, string refinementPrompt)
+        {
+            if (schema == null) return new FamilySchema();
+            string prompt = refinementPrompt?.Trim() ?? "";
+            string lower = prompt.ToLowerInvariant();
+
+            // 1. Bowl depth refinement (e.g. "make bowl 25mm deeper", "+25mm bowl depth")
+            if (lower.Contains("depth") || lower.Contains("deeper") || lower.Contains("bowl"))
+            {
+                double delta = 25.0;
+                var match = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d+)\s*mm");
+                if (match.Success && double.TryParse(match.Groups[1].Value, out double parsed))
+                {
+                    delta = parsed;
+                }
+                else if (lower.Contains("shallower") || lower.Contains("less depth"))
+                {
+                    delta = -25.0;
+                }
+
+                // Adjust bowl depth parameter if present
+                var depthParam = schema.MasterParameters?.FirstOrDefault(p => p.Name.Equals("Bowl_Depth", StringComparison.OrdinalIgnoreCase));
+                if (depthParam != null)
+                {
+                    depthParam.DefaultValueMm = Math.Max(50.0, depthParam.DefaultValueMm + delta);
+                }
+
+                // Adjust inner bowl void StartZ
+                var bowlVoid = schema.HostExtrusions?.FirstOrDefault(e => e.IsVoid && (e.Name.Contains("Bowl") || e.Name.Contains("Cavity") || e.Name.Contains("Inner")));
+                if (bowlVoid != null)
+                {
+                    bowlVoid.StartZ_mm = Math.Max(50.0, bowlVoid.StartZ_mm - delta);
+                }
+
+                // Adjust under-bowl blend bottom offset to match if needed
+                var underBowl = schema.HostBlends?.FirstOrDefault(b => b.Name.Contains("Underbowl") || b.Name.Contains("Bowl"));
+                if (underBowl != null && bowlVoid != null && underBowl.BottomOffset_mm > bowlVoid.StartZ_mm - 20)
+                {
+                    underBowl.BottomOffset_mm = Math.Max(50.0, bowlVoid.StartZ_mm - 25);
+                }
+            }
+
+            // 2. Overflow Hole refinement (e.g. "add overflow hole")
+            if (lower.Contains("overflow"))
+            {
+                bool exists = schema.HostExtrusions?.Any(e => e.Name.Contains("Overflow")) ?? false;
+                if (!exists)
+                {
+                    schema.HostExtrusions ??= new List<ExtrusionDef>();
+                    double topZ = schema.HostExtrusions.Where(e => !e.IsVoid).Select(e => Math.Max(e.StartZ_mm, e.EndZ_mm)).DefaultIfEmpty(850.0).Max();
+                    double frontY = schema.HostExtrusions.Where(e => !e.IsVoid).Select(e => Math.Min(e.MinY_mm, e.MaxY_mm)).DefaultIfEmpty(-450.0).Min();
+
+                    schema.HostExtrusions.Add(new ExtrusionDef
+                    {
+                        Name = "Basin_Overflow_Hole_Void",
+                        ProfileType = "Cylinder",
+                        IsVoid = true,
+                        Radius_mm = 12.5,
+                        MinX_mm = -12.5,
+                        MaxX_mm = 12.5,
+                        MinY_mm = frontY + 30.0 - 12.5,
+                        MaxY_mm = frontY + 30.0 + 12.5,
+                        StartZ_mm = topZ - 45.0,
+                        EndZ_mm = topZ - 20.0,
+                        Subcategory = "Basin"
+                    });
+                }
+            }
+
+            // 3. Wall-Hung / Pedestal Removal refinement (e.g. "wall-hung", "remove pedestal", "no pedestal")
+            if (lower.Contains("wall-hung") || lower.Contains("wall hung") || lower.Contains("no pedestal") || lower.Contains("remove pedestal"))
+            {
+                if (schema.HostBlends != null)
+                {
+                    schema.HostBlends.RemoveAll(b => b.Name.IndexOf("pedestal", StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+                if (!schema.MasterFamilyName.EndsWith("_WallHung", StringComparison.OrdinalIgnoreCase))
+                {
+                    schema.MasterFamilyName = schema.MasterFamilyName.Replace("_With_Pedestal", "") + "_WallHung";
+                }
+            }
+
+            // 4. Tap / Spout refinement (e.g. "tall spout", "taller tap")
+            if (lower.Contains("spout") || lower.Contains("tap"))
+            {
+                var spout = schema.HostExtrusions?.FirstOrDefault(e => e.Name.Contains("Spout"));
+                var body = schema.HostExtrusions?.FirstOrDefault(e => e.Name.Contains("Chrome_Tap_Main_Body"));
+                if (body != null)
+                {
+                    body.EndZ_mm += 35.0;
+                }
+                if (spout != null)
+                {
+                    spout.StartZ_mm += 35.0;
+                    spout.EndZ_mm += 35.0;
+                    spout.MinY_mm -= 20.0;
+                }
+            }
+
+            // 5. Width scaling refinement (e.g. "width 700", "700mm wide", "make it 650 wide")
+            var widthMatch = System.Text.RegularExpressions.Regex.Match(lower, @"(?:width|wide)\s*(?:to|is|=)?\s*(\d{3,4})");
+            if (widthMatch.Success && double.TryParse(widthMatch.Groups[1].Value, out double newW))
+            {
+                double oldW = schema.MasterParameters?.FirstOrDefault(p => p.Name.Equals("Width", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 600.0;
+                double scale = newW / Math.Max(oldW, 100.0);
+
+                var wParam = schema.MasterParameters?.FirstOrDefault(p => p.Name.Equals("Width", StringComparison.OrdinalIgnoreCase));
+                if (wParam != null) wParam.DefaultValueMm = newW;
+
+                double halfW = newW / 2.0;
+                var leftRp = schema.ReferencePlanes?.FirstOrDefault(rp => rp.Name.Contains("Left"));
+                var rightRp = schema.ReferencePlanes?.FirstOrDefault(rp => rp.Name.Contains("Right"));
+                if (leftRp != null) leftRp.OffsetFromOriginMm = -halfW;
+                if (rightRp != null) rightRp.OffsetFromOriginMm = halfW;
+
+                if (schema.HostExtrusions != null)
+                {
+                    foreach (var ext in schema.HostExtrusions.Where(e => !e.Name.StartsWith("Chrome_Tap")))
+                    {
+                        ext.MinX_mm = -Math.Abs(ext.MinX_mm) * scale;
+                        ext.MaxX_mm = Math.Abs(ext.MaxX_mm) * scale;
+                    }
+                }
+                if (schema.HostBlends != null)
+                {
+                    foreach (var bl in schema.HostBlends)
+                    {
+                        bl.TopMinX_mm = -Math.Abs(bl.TopMinX_mm) * scale;
+                        bl.TopMaxX_mm = Math.Abs(bl.TopMaxX_mm) * scale;
+                        bl.BottomMinX_mm = -Math.Abs(bl.BottomMinX_mm) * scale;
+                        bl.BottomMaxX_mm = Math.Abs(bl.BottomMaxX_mm) * scale;
+                    }
+                }
+            }
+
+            return schema;
+        }
+
         /// <summary>Model that produced the last successful AI schema.</summary>
         public string? LastUsedModel { get; private set; }
 

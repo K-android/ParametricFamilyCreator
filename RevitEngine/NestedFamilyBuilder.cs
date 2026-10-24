@@ -194,11 +194,17 @@ namespace ParametricFamilyForge.RevitEngine
                 // 4. Boolean Cut Pass: Ensure all void cavities cut intersecting solids
                 foreach (var voidElem in createdVoids)
                 {
+                    if (!SolidSolidCutUtils.IsAllowedForSolidCut(voidElem)) continue;
+                    var existingCuts = SolidSolidCutUtils.GetSolidsBeingCut(voidElem);
+
                     foreach (var solidElem in createdSolids)
                     {
+                        if (!SolidSolidCutUtils.IsAllowedForSolidCut(solidElem)) continue;
+                        if (existingCuts.Contains(solidElem.Id)) continue;
+
                         try
                         {
-                            if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out _))
+                            if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out CutFailureReason _))
                             {
                                 SolidSolidCutUtils.AddCutBetweenSolids(familyDoc, solidElem, voidElem);
                             }

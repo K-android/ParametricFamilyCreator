@@ -273,6 +273,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="130" />
                 </Grid.RowDefinitions>
 
@@ -401,14 +402,20 @@
                             <!-- Bottom Legend -->
                             <Border Grid.Row="2" Background="#1E2227" Padding="8,4" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,1,0,0">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Rectangle Width="10" Height="10" Fill="#61AFEF" Margin="0,0,3,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="Host Extrusion" FontSize="10" Foreground="#ABB2BF" Margin="0,0,10,0" VerticalAlignment="Center" />
-                                    <Rectangle Width="10" Height="10" Fill="#98C379" Margin="0,0,3,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="Nested Component" FontSize="10" Foreground="#ABB2BF" Margin="0,0,10,0" VerticalAlignment="Center" />
-                                    <Rectangle Width="10" Height="2" Fill="#E5C07B" Margin="0,0,3,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="Dimension" FontSize="10" Foreground="#ABB2BF" Margin="0,0,10,0" VerticalAlignment="Center" />
-                                    <Rectangle Width="10" Height="2" Fill="#415A77" Margin="0,0,3,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="Center Ref Plane" FontSize="10" Foreground="#ABB2BF" VerticalAlignment="Center" />
+                                    <Rectangle Width="9" Height="9" Fill="#61AFEF" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Solid" FontSize="9.5" Foreground="#ABB2BF" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Rectangle Width="9" Height="9" Fill="#56B6C2" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Blend / Taper" FontSize="9.5" Foreground="#ABB2BF" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Border Width="9" Height="9" BorderBrush="#E06C75" BorderThickness="1.2" Background="#25E06C75" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="✂️ Void Cut" FontSize="9.5" Foreground="#E06C75" FontWeight="SemiBold" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Rectangle Width="9" Height="9" Fill="#98C379" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Nested" FontSize="9.5" Foreground="#ABB2BF" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Ellipse Width="8" Height="8" Fill="#E5C07B" Stroke="#D19A66" StrokeThickness="1" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="MEP" FontSize="9.5" Foreground="#ABB2BF" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Rectangle Width="8" Height="2" Fill="#E5C07B" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Dim" FontSize="9.5" Foreground="#ABB2BF" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <Rectangle Width="8" Height="2" Fill="#415A77" Margin="0,0,3,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Ref Plane" FontSize="9.5" Foreground="#ABB2BF" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -424,13 +431,56 @@
                     </TabItem>
                 </TabControl>
 
-                <!-- Row 4: Generate Button -->
-                <Button x:Name="BtnGenerateRevitFamily" Grid.Row="4" Content="🚀 Generate &amp; Load Revit Family (.rfa)" 
-                        Height="40" Margin="0,10,0,10" FontSize="14" FontWeight="Bold"
+                <!-- Row 4: Conversational AI Geometry Refiner Bar -->
+                <Border Grid.Row="4" Background="#21252B" BorderBrush="#3E4451" BorderThickness="1" CornerRadius="6" Padding="10,7" Margin="0,6,0,6">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Header & Refinement Action Chips -->
+                        <Grid Grid.Row="0" Margin="0,0,0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="💬 Conversational AI Refiner" FontWeight="SemiBold" Foreground="#61AFEF" FontSize="11" />
+                                <TextBlock Text=" (Sculpt &amp; modify geometry iteratively)" FontSize="10" Foreground="#5C6370" Margin="4,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="BtnChipDeeper" Content="+25mm Bowl Depth" Click="BtnChip_Click" Tag="Increase the inner bowl void depth by 25mm to make the sink basin deeper" Background="#2C313A" Foreground="#ABB2BF" FontSize="10" Padding="5,2" Margin="0,0,4,0" Cursor="Hand" />
+                                <Button x:Name="BtnChipOverflow" Content="+ Overflow Hole" Click="BtnChip_Click" Tag="Add a circular void overflow hole on the inner basin bowl wall" Background="#2C313A" Foreground="#ABB2BF" FontSize="10" Padding="5,2" Margin="0,0,4,0" Cursor="Hand" />
+                                <Button x:Name="BtnChipWallHung" Content="Wall-Hung (No Pedestal)" Click="BtnChip_Click" Tag="Convert basin to wall-hung model by removing pedestal blend" Background="#2C313A" Foreground="#ABB2BF" FontSize="10" Padding="5,2" Margin="0,0,4,0" Cursor="Hand" />
+                                <Button x:Name="BtnChipTapSpout" Content="Tall Spout" Click="BtnChip_Click" Tag="Make chrome mixer tap spout 35mm taller and extend further over bowl" Background="#2C313A" Foreground="#ABB2BF" FontSize="10" Padding="5,2" Margin="0,0,0,0" Cursor="Hand" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Conversational Input Box + Refine Button -->
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TxtRefinePrompt" Height="30" FontSize="11" Padding="6,3" VerticalContentAlignment="Center"
+                                     ToolTip="Enter refinement (e.g. 'make bowl 20mm deeper', 'change width to 750mm', 'add overflow hole', 'wall-hung'). Press Enter to refine."
+                                     KeyDown="TxtRefinePrompt_KeyDown" Background="#1E2227" Foreground="#E5C07B" BorderBrush="#3E4451" />
+                            <Button x:Name="BtnRefineGeometry" Grid.Column="1" Content="✨ Refine Geometry" 
+                                    Margin="6,0,0,0" Padding="12,0" Height="30" FontSize="11" FontWeight="SemiBold"
+                                    Background="#61AFEF" Foreground="#1E2227" Click="BtnRefineGeometry_Click" Cursor="Hand" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- Row 5: Generate Button -->
+                <Button x:Name="BtnGenerateRevitFamily" Grid.Row="5" Content="🚀 Generate &amp; Load Revit Family (.rfa)" 
+                        Height="40" Margin="0,4,0,8" FontSize="14" FontWeight="Bold"
                         Click="BtnGenerateRevitFamily_Click" />
 
-                <!-- Row 5: Logs Console -->
-                <Border Grid.Row="5" Background="#1E2227" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="4">
+                <!-- Row 6: Logs Console -->
+                <Border Grid.Row="6" Background="#1E2227" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="4">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />

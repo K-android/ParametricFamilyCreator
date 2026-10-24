@@ -5,11 +5,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Rectangle = System.Windows.Shapes.Rectangle;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using Line = System.Windows.Shapes.Line;
+using Polygon = System.Windows.Shapes.Polygon;
 using Autodesk.Revit.UI;
 using Microsoft.Win32;
 using ParametricFamilyForge.Models;
@@ -477,12 +479,131 @@ namespace ParametricFamilyForge.UI
 
         #endregion
 
+        #region Conversational AI Geometry Refinement
+
+        private void BtnChip_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag != null)
+            {
+                TxtRefinePrompt.Text = btn.Tag.ToString()!;
+                BtnRefineGeometry_Click(sender, e);
+            }
+        }
+
+        private void TxtRefinePrompt_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                BtnRefineGeometry_Click(sender, e);
+            }
+        }
+
+        private async void BtnRefineGeometry_Click(object sender, RoutedEventArgs e)
+        {
+            string instruction = TxtRefinePrompt.Text.Trim();
+            if (string.IsNullOrWhiteSpace(instruction))
+            {
+                MessageBox.Show(this, "Please enter a refinement instruction (e.g. 'make bowl 25mm deeper', 'convert to wall-hung', 'add overflow hole').", "Refinement Instruction Required", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string currentJson = TxtJsonPreview.Text.Trim();
+            if (string.IsNullOrWhiteSpace(currentJson))
+            {
+                MessageBox.Show(this, "No existing family schema loaded to refine. Please synthesize or select a preset first.", "Schema Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            FamilySchema? currentSchema;
+            try
+            {
+                currentSchema = JsonSerializer.Deserialize<FamilySchema>(currentJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Current JSON schema is invalid: {ex.Message}", "Invalid JSON", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            if (currentSchema == null) return;
+
+            string apiKey = TxtApiKey.Password.Trim();
+            string selectedModel = (CmbModelEngine.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-3.8-flash";
+            double temp = SliderTemperature.Value;
+
+            var startTime = DateTime.UtcNow;
+            var elapsedTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            elapsedTimer.Tick += (s, args) =>
+            {
+                int sec = (int)(DateTime.UtcNow - startTime).TotalSeconds;
+                TxtAiElapsed.Text = $"{sec}s";
+                BtnRefineGeometry.Content = $"⏳ Refining... ({sec}s)";
+            };
+
+            BtnRefineGeometry.IsEnabled = false;
+            BtnRefineGeometry.Content = "⏳ Refining... (0s)";
+            TxtAiElapsed.Text = "0s";
+            AiStatusBanner.Visibility = Visibility.Visible;
+            TxtAiStatus.Text = $"💬 Conversational AI refining geometry: '{instruction}'...";
+            elapsedTimer.Start();
+            LogMessage($"[AI REFINER] User Request: \"{instruction}\"");
+
+            try
+            {
+                var visionService = new GeminiVisionService();
+                visionService.OnStatusUpdate += msg => Dispatcher.Invoke(() => TxtAiStatus.Text = msg);
+
+                FamilySchema refinedSchema = await visionService.RefineFamilySchemaAsync(
+                    apiKey,
+                    currentSchema,
+                    instruction,
+                    selectedModel,
+                    temp
+                );
+
+                string formattedJson = JsonSerializer.Serialize(refinedSchema, new JsonSerializerOptions { WriteIndented = true });
+                TxtJsonPreview.Text = formattedJson;
+
+                RedrawGeometryPreview(refinedSchema);
+                RunQuickValidation(refinedSchema);
+
+                LogMessage($"[AI REFINER SUCCESS] Successfully refined family '{refinedSchema.MasterFamilyName}'.");
+                double w = refinedSchema.MasterParameters.FirstOrDefault(p => p.Name == "Width")?.DefaultValueMm ?? 0;
+                double d = refinedSchema.MasterParameters.FirstOrDefault(p => p.Name == "Depth")?.DefaultValueMm ?? 0;
+                double h = refinedSchema.MasterParameters.FirstOrDefault(p => p.Name == "Height")?.DefaultValueMm ?? 0;
+                LogMessage($"  Dimensions: {w} × {d} × {h} mm");
+                LogMessage($"  Solids: {refinedSchema.HostExtrusions.Count(ext => !ext.IsVoid)}, Blends: {refinedSchema.HostBlends.Count}, Voids: {refinedSchema.HostExtrusions.Count(ext => ext.IsVoid)}");
+                TxtRefinePrompt.Clear();
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"[AI REFINER ERROR] {ex.Message}");
+                MessageBox.Show(this, $"Refinement error: {ex.Message}", "Refinement Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                elapsedTimer.Stop();
+                BtnRefineGeometry.IsEnabled = true;
+                BtnRefineGeometry.Content = "✨ Refine Geometry";
+                AiStatusBanner.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        #endregion
+
         #region Interactive 2D Geometry Preview (Plan & Elevation)
 
         private class ExtrusionBounds
         {
             public string Name { get; set; } = string.Empty;
             public string ProfileType { get; set; } = "Rectangle";
+            public string GeometryType { get; set; } = "Extrusion"; // "Extrusion", "Blend", "Sweep", "Connector"
+            public bool IsVoid { get; set; }
+            public bool IsNested { get; set; }
+            public string Subcategory { get; set; } = string.Empty;
             public double MinX { get; set; }
             public double MaxX { get; set; }
             public double MinY { get; set; }
@@ -490,7 +611,21 @@ namespace ParametricFamilyForge.UI
             public double MinZ { get; set; }
             public double MaxZ { get; set; }
             public double Radius { get; set; }
-            public bool IsNested { get; set; }
+            public double CornerRadius { get; set; }
+            // Blend profiles:
+            public double BottomMinX { get; set; }
+            public double BottomMaxX { get; set; }
+            public double BottomMinY { get; set; }
+            public double BottomMaxY { get; set; }
+            public double TopMinX { get; set; }
+            public double TopMaxX { get; set; }
+            public double TopMinY { get; set; }
+            public double TopMaxY { get; set; }
+            // Sweep path points:
+            public List<Point> PathPoints { get; set; } = new();
+            // MEP Connector:
+            public string ConnectorSystem { get; set; } = string.Empty;
+            public double ConnectorDiameter { get; set; }
         }
 
         private void RightTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -582,23 +717,29 @@ namespace ParametricFamilyForge.UI
                 return;
             }
 
-            double minX = boxes.Min(b => b.MinX);
-            double maxX = boxes.Max(b => b.MaxX);
-            double minY = boxes.Min(b => b.MinY);
-            double maxY = boxes.Max(b => b.MaxY);
-            double minZ = boxes.Min(b => b.MinZ);
-            double maxZ = boxes.Max(b => b.MaxZ);
+            // Calculate overall bounding box from solids so voids/connectors don't artificially expand model bounds
+            var solidBoxes = boxes.Where(b => !b.IsVoid && b.GeometryType != "Connector").ToList();
+            var refBoxes = solidBoxes.Count > 0 ? solidBoxes : boxes;
+
+            double minX = refBoxes.Min(b => b.MinX);
+            double maxX = refBoxes.Max(b => b.MaxX);
+            double minY = refBoxes.Min(b => b.MinY);
+            double maxY = refBoxes.Max(b => b.MaxY);
+            double minZ = refBoxes.Min(b => b.MinZ);
+            double maxZ = refBoxes.Max(b => b.MaxZ);
 
             double totalWidth = Math.Max(maxX - minX, 1.0);
             double totalDepth = Math.Max(maxY - minY, 1.0);
             double totalHeight = Math.Max(maxZ - minZ, 1.0);
 
-            int hostCount = boxes.Count(b => !b.IsNested);
-            int nestedCount = boxes.Count(b => b.IsNested);
+            int solidCount = boxes.Count(b => !b.IsVoid && b.GeometryType != "Connector");
+            int blendCount = boxes.Count(b => b.GeometryType == "Blend");
+            int voidCount = boxes.Count(b => b.IsVoid);
+            int connCount = boxes.Count(b => b.GeometryType == "Connector");
 
             if (TxtPreviewDimensions != null)
             {
-                TxtPreviewDimensions.Text = $"Bounding: {totalWidth:0.#} × {totalDepth:0.#} × {totalHeight:0.#} mm | {hostCount} Host, {nestedCount} Nested Components";
+                TxtPreviewDimensions.Text = $"Bounding: {totalWidth:0.#} × {totalDepth:0.#} × {totalHeight:0.#} mm | {solidCount} Solids, {blendCount} Blends, {voidCount} Voids, {connCount} MEP Ports";
             }
 
             DrawPlanView(boxes, minX, maxX, minY, maxY, totalWidth, totalDepth);
@@ -616,7 +757,11 @@ namespace ParametricFamilyForge.UI
                     {
                         Name = ext.Name,
                         ProfileType = ext.ProfileType,
+                        GeometryType = "Extrusion",
+                        IsVoid = ext.IsVoid,
                         IsNested = false,
+                        Subcategory = ext.Subcategory ?? "",
+                        CornerRadius = ext.CornerRadius_mm,
                         MinZ = Math.Min(ext.StartZ_mm, ext.EndZ_mm),
                         MaxZ = Math.Max(ext.StartZ_mm, ext.EndZ_mm)
                     };
@@ -659,7 +804,11 @@ namespace ParametricFamilyForge.UI
                             {
                                 Name = string.IsNullOrEmpty(sub.Name) ? nf.NestedFamilyName : $"{nf.NestedFamilyName}: {sub.Name}",
                                 ProfileType = sub.ProfileType,
+                                GeometryType = "Extrusion",
+                                IsVoid = sub.IsVoid,
                                 IsNested = true,
+                                Subcategory = sub.Subcategory ?? "",
+                                CornerRadius = sub.CornerRadius_mm,
                                 MinZ = offZ + Math.Min(sub.StartZ_mm, sub.EndZ_mm),
                                 MaxZ = offZ + Math.Max(sub.StartZ_mm, sub.EndZ_mm)
                             };
@@ -700,7 +849,18 @@ namespace ParametricFamilyForge.UI
                     {
                         Name = bl.Name,
                         ProfileType = bl.TopProfileType,
+                        GeometryType = "Blend",
+                        IsVoid = bl.IsVoid,
                         IsNested = false,
+                        Subcategory = bl.Subcategory ?? "",
+                        BottomMinX = Math.Min(bl.BottomMinX_mm, bl.BottomMaxX_mm),
+                        BottomMaxX = Math.Max(bl.BottomMinX_mm, bl.BottomMaxX_mm),
+                        BottomMinY = Math.Min(bl.BottomMinY_mm, bl.BottomMaxY_mm),
+                        BottomMaxY = Math.Max(bl.BottomMinY_mm, bl.BottomMaxY_mm),
+                        TopMinX = Math.Min(bl.TopMinX_mm, bl.TopMaxX_mm),
+                        TopMaxX = Math.Max(bl.TopMinX_mm, bl.TopMaxX_mm),
+                        TopMinY = Math.Min(bl.TopMinY_mm, bl.TopMaxY_mm),
+                        TopMaxY = Math.Max(bl.TopMinY_mm, bl.TopMaxY_mm),
                         MinX = minX, MaxX = maxX,
                         MinY = minY, MaxY = maxY,
                         MinZ = Math.Min(bl.BottomOffset_mm, bl.TopOffset_mm),
@@ -716,19 +876,52 @@ namespace ParametricFamilyForge.UI
                     if (sw.PathPoints_mm != null && sw.PathPoints_mm.Count > 0)
                     {
                         double pad = sw.ProfileRadius_mm > 0 ? sw.ProfileRadius_mm : Math.Max(sw.ProfileWidth_mm, sw.ProfileHeight_mm) / 2.0;
-                        list.Add(new ExtrusionBounds
+                        var eb = new ExtrusionBounds
                         {
                             Name = sw.Name,
                             ProfileType = sw.ProfileType,
+                            GeometryType = "Sweep",
+                            IsVoid = sw.IsVoid,
                             IsNested = false,
+                            Subcategory = sw.Subcategory ?? "",
                             MinX = sw.PathPoints_mm.Min(p => p.X) - pad,
                             MaxX = sw.PathPoints_mm.Max(p => p.X) + pad,
                             MinY = sw.PathPoints_mm.Min(p => p.Y) - pad,
                             MaxY = sw.PathPoints_mm.Max(p => p.Y) + pad,
                             MinZ = sw.PathPoints_mm.Min(p => p.Z) - pad,
                             MaxZ = sw.PathPoints_mm.Max(p => p.Z) + pad
-                        });
+                        };
+                        foreach (var pt in sw.PathPoints_mm)
+                        {
+                            eb.PathPoints.Add(new Point(pt.X, pt.Y));
+                        }
+                        list.Add(eb);
                     }
+                }
+            }
+
+            if (schema.MepConnectors != null)
+            {
+                foreach (var conn in schema.MepConnectors)
+                {
+                    double cx = conn.OriginOffsetMm?.X ?? 0.0;
+                    double cy = conn.OriginOffsetMm?.Y ?? 0.0;
+                    double cz = conn.OriginOffsetMm?.Z ?? 0.0;
+                    double r = conn.Diameter_mm > 0 ? conn.Diameter_mm / 2.0 : 15.0;
+                    list.Add(new ExtrusionBounds
+                    {
+                        Name = conn.Name,
+                        GeometryType = "Connector",
+                        ConnectorSystem = conn.SystemType ?? conn.Domain ?? "Pipe",
+                        ConnectorDiameter = conn.Diameter_mm,
+                        MinX = cx - r,
+                        MaxX = cx + r,
+                        MinY = cy - r,
+                        MaxY = cy + r,
+                        MinZ = cz - r,
+                        MaxZ = cz + r,
+                        Radius = r
+                    });
                 }
             }
 
@@ -785,8 +978,10 @@ namespace ParametricFamilyForge.UI
                 });
             }
 
-            // Extrusions
-            foreach (var b in boxes)
+            // Order: 1. Solids & Blends, 2. Sweeps, 3. Voids (Cutouts), 4. MEP Connectors
+            var sortedBoxes = boxes.OrderBy(b => b.GeometryType == "Connector" ? 3 : (b.IsVoid ? 2 : 1)).ToList();
+
+            foreach (var b in sortedBoxes)
             {
                 double x1 = ToPxX(b.MinX);
                 double x2 = ToPxX(b.MaxX);
@@ -798,10 +993,153 @@ namespace ParametricFamilyForge.UI
                 double rw = Math.Max(Math.Abs(x2 - x1), 2.0);
                 double rh = Math.Max(Math.Abs(y1 - y2), 2.0);
 
-                Color mainColor = b.IsNested ? Color.FromRgb(152, 195, 121) : Color.FromRgb(97, 175, 239);
-                Color fillColor = Color.FromArgb(65, mainColor.R, mainColor.G, mainColor.B);
+                if (b.GeometryType == "Connector")
+                {
+                    // MEP Connector Port
+                    Color connColor = b.ConnectorSystem.Contains("Cold") ? Color.FromRgb(79, 193, 255)
+                                    : b.ConnectorSystem.Contains("Hot") ? Color.FromRgb(255, 107, 107)
+                                    : b.ConnectorSystem.Contains("Sanitary") || b.ConnectorSystem.Contains("Waste") ? Color.FromRgb(81, 207, 102)
+                                    : Color.FromRgb(229, 192, 123);
 
-                if (string.Equals(b.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
+                    double cx = (rx + rx + rw) / 2.0;
+                    double cy = (ry + ry + rh) / 2.0;
+                    double cr = Math.Max(rw / 2.0, 5.0);
+
+                    var circle = new Ellipse
+                    {
+                        Width = cr * 2, Height = cr * 2,
+                        Fill = new SolidColorBrush(Color.FromArgb(60, connColor.R, connColor.G, connColor.B)),
+                        Stroke = new SolidColorBrush(connColor),
+                        StrokeThickness = 1.4
+                    };
+                    Canvas.SetLeft(circle, cx - cr);
+                    Canvas.SetTop(circle, cy - cr);
+                    CanvasPlan.Children.Add(circle);
+
+                    // Crosshair
+                    CanvasPlan.Children.Add(new Line { X1 = cx - cr - 2, Y1 = cy, X2 = cx + cr + 2, Y2 = cy, Stroke = new SolidColorBrush(connColor), StrokeThickness = 1 });
+                    CanvasPlan.Children.Add(new Line { X1 = cx, Y1 = cy - cr - 2, X2 = cx, Y2 = cy + cr + 2, Stroke = new SolidColorBrush(connColor), StrokeThickness = 1 });
+
+                    var connTxt = new TextBlock
+                    {
+                        Text = $"🔌 {b.Name} (Ø{b.ConnectorDiameter}mm)",
+                        FontSize = 9.0,
+                        Foreground = new SolidColorBrush(connColor),
+                        Background = new SolidColorBrush(Color.FromArgb(200, 20, 23, 28))
+                    };
+                    Canvas.SetLeft(connTxt, cx + cr + 4);
+                    Canvas.SetTop(connTxt, cy - 6);
+                    CanvasPlan.Children.Add(connTxt);
+                    continue;
+                }
+
+                if (b.IsVoid)
+                {
+                    // VOID CUTOUT: Rendered over solids with cavity background fill to visually cut out
+                    Color voidBorder = Color.FromRgb(224, 108, 117); // #E06C75 salmon red
+                    Color voidFill = Color.FromArgb(240, 20, 23, 28); // dark canvas background for true cutout hole
+
+                    if (string.Equals(b.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var ellipse = new Ellipse
+                        {
+                            Width = rw, Height = rh,
+                            Fill = new SolidColorBrush(voidFill),
+                            Stroke = new SolidColorBrush(voidBorder),
+                            StrokeThickness = 1.4,
+                            StrokeDashArray = new DoubleCollection { 4, 3 }
+                        };
+                        Canvas.SetLeft(ellipse, rx);
+                        Canvas.SetTop(ellipse, ry);
+                        CanvasPlan.Children.Add(ellipse);
+                    }
+                    else
+                    {
+                        var rect = new Rectangle
+                        {
+                            Width = rw, Height = rh,
+                            Fill = new SolidColorBrush(voidFill),
+                            Stroke = new SolidColorBrush(voidBorder),
+                            StrokeThickness = 1.4,
+                            StrokeDashArray = new DoubleCollection { 4, 3 },
+                            RadiusX = 2, RadiusY = 2
+                        };
+                        Canvas.SetLeft(rect, rx);
+                        Canvas.SetTop(rect, ry);
+                        CanvasPlan.Children.Add(rect);
+                    }
+
+                    if (rw > 45 && rh > 16)
+                    {
+                        var txt = new TextBlock
+                        {
+                            Text = $"✂️ {b.Name} [CUT]",
+                            FontSize = 9.0,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = new SolidColorBrush(voidBorder),
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            MaxWidth = rw - 4,
+                            TextAlignment = TextAlignment.Center
+                        };
+                        Canvas.SetLeft(txt, rx + 2);
+                        Canvas.SetTop(txt, ry + (rh / 2.0) - 7);
+                        CanvasPlan.Children.Add(txt);
+                    }
+                    continue;
+                }
+
+                // SOLIDS & BLENDS
+                Color mainColor;
+                if (b.IsNested)
+                    mainColor = Color.FromRgb(152, 195, 121); // #98C379 green
+                else if (b.GeometryType == "Blend" || b.Subcategory.Equals("Pedestal", StringComparison.OrdinalIgnoreCase))
+                    mainColor = Color.FromRgb(86, 182, 194); // #56B6C2 teal
+                else if (b.Subcategory.Equals("Hardware", StringComparison.OrdinalIgnoreCase))
+                    mainColor = Color.FromRgb(209, 154, 102); // #D19A66 bronze / chrome
+                else
+                    mainColor = Color.FromRgb(97, 175, 239); // #61AFEF slate blue
+
+                Color fillColor = Color.FromArgb(60, mainColor.R, mainColor.G, mainColor.B);
+
+                if (b.GeometryType == "Blend")
+                {
+                    // Draw outer profile (Top)
+                    var rectTop = new Rectangle
+                    {
+                        Width = rw, Height = rh,
+                        Fill = new SolidColorBrush(fillColor),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.2,
+                        RadiusX = 2, RadiusY = 2
+                    };
+                    Canvas.SetLeft(rectTop, rx);
+                    Canvas.SetTop(rectTop, ry);
+                    CanvasPlan.Children.Add(rectTop);
+
+                    // Draw inner profile (Bottom) dashed to visualize taper
+                    double bx1 = ToPxX(b.BottomMinX);
+                    double bx2 = ToPxX(b.BottomMaxX);
+                    double by1 = ToPxY(b.BottomMinY);
+                    double by2 = ToPxY(b.BottomMaxY);
+                    double brx = Math.Min(bx1, bx2);
+                    double bry = Math.Min(by1, by2);
+                    double brw = Math.Max(Math.Abs(bx2 - bx1), 2.0);
+                    double brh = Math.Max(Math.Abs(by1 - by2), 2.0);
+
+                    var rectBot = new Rectangle
+                    {
+                        Width = brw, Height = brh,
+                        Fill = new SolidColorBrush(Color.FromArgb(30, mainColor.R, mainColor.G, mainColor.B)),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.0,
+                        StrokeDashArray = new DoubleCollection { 3, 2 },
+                        RadiusX = 2, RadiusY = 2
+                    };
+                    Canvas.SetLeft(rectBot, brx);
+                    Canvas.SetTop(rectBot, bry);
+                    CanvasPlan.Children.Add(rectBot);
+                }
+                else if (string.Equals(b.ProfileType, "Cylinder", StringComparison.OrdinalIgnoreCase))
                 {
                     var ellipse = new Ellipse
                     {
@@ -816,13 +1154,14 @@ namespace ParametricFamilyForge.UI
                 }
                 else
                 {
+                    double rad = b.CornerRadius > 0 ? b.CornerRadius * scale : 2.0;
                     var rect = new Rectangle
                     {
                         Width = rw, Height = rh,
                         Fill = new SolidColorBrush(fillColor),
                         Stroke = new SolidColorBrush(mainColor),
                         StrokeThickness = 1.2,
-                        RadiusX = 2, RadiusY = 2
+                        RadiusX = rad, RadiusY = rad
                     };
                     Canvas.SetLeft(rect, rx);
                     Canvas.SetTop(rect, ry);
@@ -929,33 +1268,147 @@ namespace ParametricFamilyForge.UI
                 });
             }
 
-            // Extrusions
-            foreach (var b in boxes)
+            // Order: 1. Solids & Blends, 2. Sweeps, 3. Voids (Cutouts), 4. MEP Connectors
+            var sortedBoxes = boxes.OrderBy(b => b.GeometryType == "Connector" ? 3 : (b.IsVoid ? 2 : 1)).ToList();
+
+            foreach (var b in sortedBoxes)
             {
                 double x1 = ToPxX(b.MinX);
                 double x2 = ToPxX(b.MaxX);
-                double z1 = ToPxZ(b.MinZ); // bottom
-                double z2 = ToPxZ(b.MaxZ); // top
+                double z1 = ToPxZ(b.MinZ); // bottom (larger pixel Y)
+                double z2 = ToPxZ(b.MaxZ); // top (smaller pixel Y)
 
                 double rx = Math.Min(x1, x2);
                 double rz = Math.Min(z1, z2);
                 double rw = Math.Max(Math.Abs(x2 - x1), 2.0);
                 double rh = Math.Max(Math.Abs(z1 - z2), 2.0);
 
-                Color mainColor = b.IsNested ? Color.FromRgb(152, 195, 121) : Color.FromRgb(97, 175, 239);
-                Color fillColor = Color.FromArgb(65, mainColor.R, mainColor.G, mainColor.B);
-
-                var rect = new Rectangle
+                if (b.GeometryType == "Connector")
                 {
-                    Width = rw, Height = rh,
-                    Fill = new SolidColorBrush(fillColor),
-                    Stroke = new SolidColorBrush(mainColor),
-                    StrokeThickness = 1.2,
-                    RadiusX = 1, RadiusY = 1
-                };
-                Canvas.SetLeft(rect, rx);
-                Canvas.SetTop(rect, rz);
-                CanvasElevation.Children.Add(rect);
+                    // MEP Connector Port in Elevation
+                    Color connColor = b.ConnectorSystem.Contains("Cold") ? Color.FromRgb(79, 193, 255)
+                                    : b.ConnectorSystem.Contains("Hot") ? Color.FromRgb(255, 107, 107)
+                                    : b.ConnectorSystem.Contains("Sanitary") || b.ConnectorSystem.Contains("Waste") ? Color.FromRgb(81, 207, 102)
+                                    : Color.FromRgb(229, 192, 123);
+
+                    double cx = (rx + rx + rw) / 2.0;
+                    double cz = (rz + rz + rh) / 2.0;
+                    double cr = Math.Max(rw / 2.0, 5.0);
+
+                    var circle = new Ellipse
+                    {
+                        Width = cr * 2, Height = cr * 2,
+                        Fill = new SolidColorBrush(Color.FromArgb(60, connColor.R, connColor.G, connColor.B)),
+                        Stroke = new SolidColorBrush(connColor),
+                        StrokeThickness = 1.4
+                    };
+                    Canvas.SetLeft(circle, cx - cr);
+                    Canvas.SetTop(circle, cz - cr);
+                    CanvasElevation.Children.Add(circle);
+
+                    var connTxt = new TextBlock
+                    {
+                        Text = $"🔌 {b.Name}",
+                        FontSize = 9.0,
+                        Foreground = new SolidColorBrush(connColor),
+                        Background = new SolidColorBrush(Color.FromArgb(200, 20, 23, 28))
+                    };
+                    Canvas.SetLeft(connTxt, cx + cr + 4);
+                    Canvas.SetTop(connTxt, cz - 6);
+                    CanvasElevation.Children.Add(connTxt);
+                    continue;
+                }
+
+                if (b.IsVoid)
+                {
+                    // VOID CUTOUT: Drawn on top of solids with cavity background fill to show cut-through pocket
+                    Color voidBorder = Color.FromRgb(224, 108, 117); // #E06C75 salmon red
+                    Color voidFill = Color.FromArgb(240, 20, 23, 28); // cavity cutout
+
+                    var rect = new Rectangle
+                    {
+                        Width = rw, Height = rh,
+                        Fill = new SolidColorBrush(voidFill),
+                        Stroke = new SolidColorBrush(voidBorder),
+                        StrokeThickness = 1.4,
+                        StrokeDashArray = new DoubleCollection { 4, 3 },
+                        RadiusX = 1, RadiusY = 1
+                    };
+                    Canvas.SetLeft(rect, rx);
+                    Canvas.SetTop(rect, rz);
+                    CanvasElevation.Children.Add(rect);
+
+                    if (rw > 45 && rh > 16)
+                    {
+                        var txt = new TextBlock
+                        {
+                            Text = $"✂️ {b.Name} [CUT]",
+                            FontSize = 9.0,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = new SolidColorBrush(voidBorder),
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            MaxWidth = rw - 4,
+                            TextAlignment = TextAlignment.Center
+                        };
+                        Canvas.SetLeft(txt, rx + 2);
+                        Canvas.SetTop(txt, rz + (rh / 2.0) - 7);
+                        CanvasElevation.Children.Add(txt);
+                    }
+                    continue;
+                }
+
+                // SOLIDS & BLENDS
+                Color mainColor;
+                if (b.IsNested)
+                    mainColor = Color.FromRgb(152, 195, 121);
+                else if (b.GeometryType == "Blend" || b.Subcategory.Equals("Pedestal", StringComparison.OrdinalIgnoreCase))
+                    mainColor = Color.FromRgb(86, 182, 194);
+                else if (b.Subcategory.Equals("Hardware", StringComparison.OrdinalIgnoreCase))
+                    mainColor = Color.FromRgb(209, 154, 102);
+                else
+                    mainColor = Color.FromRgb(97, 175, 239);
+
+                Color fillColor = Color.FromArgb(60, mainColor.R, mainColor.G, mainColor.B);
+
+                if (b.GeometryType == "Blend")
+                {
+                    // Render true tapered polygon connecting bottom and top profile widths
+                    double xBotLeft = ToPxX(b.BottomMinX);
+                    double xBotRight = ToPxX(b.BottomMaxX);
+                    double xTopLeft = ToPxX(b.TopMinX);
+                    double xTopRight = ToPxX(b.TopMaxX);
+                    double zBot = ToPxZ(b.MinZ);
+                    double zTop = ToPxZ(b.MaxZ);
+
+                    var poly = new Polygon
+                    {
+                        Points = new PointCollection
+                        {
+                            new Point(xBotLeft, zBot),
+                            new Point(xTopLeft, zTop),
+                            new Point(xTopRight, zTop),
+                            new Point(xBotRight, zBot)
+                        },
+                        Fill = new SolidColorBrush(fillColor),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.3
+                    };
+                    CanvasElevation.Children.Add(poly);
+                }
+                else
+                {
+                    var rect = new Rectangle
+                    {
+                        Width = rw, Height = rh,
+                        Fill = new SolidColorBrush(fillColor),
+                        Stroke = new SolidColorBrush(mainColor),
+                        StrokeThickness = 1.2,
+                        RadiusX = 1, RadiusY = 1
+                    };
+                    Canvas.SetLeft(rect, rx);
+                    Canvas.SetTop(rect, rz);
+                    CanvasElevation.Children.Add(rect);
+                }
 
                 if (rw > 50 && rh > 18)
                 {

@@ -332,28 +332,45 @@ namespace ParametricFamilyForge.RevitEngine
                 if (createdVoids.Count > 0 && createdSolids.Count > 0)
                 {
                     onLog?.Invoke($"[REVIT ENGINE] Applying boolean void cuts ({createdVoids.Count} void(s) against {createdSolids.Count} solid(s))...");
+                    int successfulCuts = 0;
                     foreach (var voidElem in createdVoids)
                     {
+                        if (!SolidSolidCutUtils.IsAllowedForSolidCut(voidElem)) continue;
+                        var existingCutSolids = SolidSolidCutUtils.GetSolidsBeingCut(voidElem);
+
                         foreach (var solidElem in createdSolids)
                         {
+                            if (!SolidSolidCutUtils.IsAllowedForSolidCut(solidElem)) continue;
+
+                            // 1. Check if Revit's engine already cut this solid upon creation
+                            if (existingCutSolids.Contains(solidElem.Id))
+                            {
+                                successfulCuts++;
+                                onLog?.Invoke($"[Void Cut VERIFIED] '{voidElem.Name}' is actively cutting '{solidElem.Name}'.");
+                                continue;
+                            }
+
+                            // 2. Test if elements intersect and can cut
                             try
                             {
                                 if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out CutFailureReason reason))
                                 {
                                     SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
+                                    successfulCuts++;
                                     onLog?.Invoke($"[Void Cut SUCCESS] '{voidElem.Name}' cleanly cut solid '{solidElem.Name}'.");
                                 }
                                 else
                                 {
-                                    // Try fallback direct cut: CanElementCutElement can sometimes report non-intersection on tangential faces
+                                    // Try direct cut: CanElementCutElement can sometimes report non-intersection for coplanar faces
                                     try
                                     {
                                         SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
+                                        successfulCuts++;
                                         onLog?.Invoke($"[Void Cut SUCCESS (Direct)] '{voidElem.Name}' cut solid '{solidElem.Name}'.");
                                     }
-                                    catch (Exception directEx)
+                                    catch
                                     {
-                                        onLog?.Invoke($"[Void Cut Info] Void '{voidElem.Name}' did not cut '{solidElem.Name}': {directEx.Message} (Reason: {reason})");
+                                        // Elements do not geometrically intersect (e.g. tap hole void doesn't intersect pedestal)
                                     }
                                 }
                             }
@@ -363,6 +380,7 @@ namespace ParametricFamilyForge.RevitEngine
                             }
                         }
                     }
+                    onLog?.Invoke($"[REVIT ENGINE] Void cutting complete. {successfulCuts} boolean intersection cut(s) verified.");
                     masterDoc.Regenerate();
                 }
 

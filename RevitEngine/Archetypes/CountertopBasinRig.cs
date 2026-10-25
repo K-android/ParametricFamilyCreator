@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ParametricFamilyForge.Models;
 
@@ -117,25 +117,35 @@ namespace ParametricFamilyForge.RevitEngine.Archetypes
                 }
             };
 
-            // Faucet Curved Sweep
-            schema.HostSweeps = new List<SweepDef>
+            // Tall Chrome Countertop Mixer Faucet (watertight cylinders that never fail)
+            schema.HostExtrusions.Add(new ExtrusionDef
             {
-                new SweepDef
-                {
-                    Name = "Gooseneck_Faucet_Spout",
-                    IsVoid = false,
-                    ProfileRadius_mm = 14.0,
-                    Subcategory = "Fixtures",
-                    PathPoints_mm = new List<VectorOffsetDef>
-                    {
-                        new VectorOffsetDef(0.0, d / 2.0 + 45.0, 0.0),
-                        new VectorOffsetDef(0.0, d / 2.0 + 45.0, bowlH + 110.0),
-                        new VectorOffsetDef(0.0, d / 2.0 + 20.0, bowlH + 130.0),
-                        new VectorOffsetDef(0.0, 0.0, bowlH + 100.0),
-                        new VectorOffsetDef(0.0, 0.0, bowlH + 75.0)
-                    }
-                }
-            };
+                Name = "Vessel_Faucet_Pillar",
+                ProfileType = "Cylinder",
+                IsVoid = false,
+                Radius_mm = 16.0,
+                MinX_mm = -16.0,
+                MaxX_mm = 16.0,
+                MinY_mm = d / 2.0 + 35.0 - 16.0,
+                MaxY_mm = d / 2.0 + 35.0 + 16.0,
+                StartZ_mm = 0.0,
+                EndZ_mm = bowlH + 110.0,
+                Subcategory = "Fixtures"
+            });
+            schema.HostExtrusions.Add(new ExtrusionDef
+            {
+                Name = "Vessel_Faucet_Spout",
+                ProfileType = "RoundedRectangle",
+                CornerRadius_mm = 7.0,
+                IsVoid = false,
+                MinX_mm = -8.0,
+                MaxX_mm = 8.0,
+                MinY_mm = 0.0,
+                MaxY_mm = d / 2.0 + 35.0,
+                StartZ_mm = bowlH + 95.0,
+                EndZ_mm = bowlH + 110.0,
+                Subcategory = "Fixtures"
+            });
 
             // MEP Connectors
             schema.MepConnectors = new List<MepConnectorDef>

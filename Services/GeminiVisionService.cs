@@ -21,7 +21,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        public const string DefaultGeminiModel = "gemini-3.8-flash";
+        public const string DefaultGeminiModel = "gemini-2.5-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -263,7 +263,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                     using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
                     HttpResponseMessage response = await _httpClient.PostAsync(endpoint, content, linkedCts.Token);
@@ -857,7 +857,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             foreach (var m in Gemini3And4Models)
             {
-                if (list.Count >= 5) break;
+                if (list.Count >= 2) break;
                 if (!list.Contains(m, StringComparer.OrdinalIgnoreCase))
                     list.Add(m);
             }

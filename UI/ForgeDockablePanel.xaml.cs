@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -77,7 +77,7 @@ namespace ParametricFamilyForge.UI
         {
             string prompt = TxtDockPrompt.Text.Trim();
             string apiKey = TxtDockApiKey.Password.Trim();
-            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-3.8-flash";
+            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-2.5-flash";
             string archetype = (CmbArchetype.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
 
             BtnGenerateFamily.IsEnabled = false;
@@ -186,7 +186,7 @@ namespace ParametricFamilyForge.UI
                 _externalEvent.Raise();
 
                 // Run spec rescan audit against PDF/Image
-                await RunPdfRescan();
+                _ = Task.Run(async () => { try { await RunPdfRescan(); } catch { } });
             }
             catch (Exception ex)
             {
@@ -520,7 +520,7 @@ namespace ParametricFamilyForge.UI
 
         private async void BtnRescanPdf_Click(object sender, RoutedEventArgs e)
         {
-            await RunPdfRescan();
+            _ = Task.Run(async () => { try { await RunPdfRescan(); } catch { } });
         }
 
         private async Task RunPdfRescan()
@@ -529,7 +529,7 @@ namespace ParametricFamilyForge.UI
 
             string apiKey = TxtDockApiKey.Password.Trim();
             string prompt = TxtDockPrompt.Text.Trim();
-            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-3.8-flash";
+            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-2.5-flash";
 
             LogMessage("[AUDIT] Rescanning modeled Revit family against manufacturer PDF cut-sheet...");
 
@@ -565,7 +565,7 @@ namespace ParametricFamilyForge.UI
             if (string.IsNullOrWhiteSpace(instruction) || _currentSchema == null) return;
 
             string apiKey = TxtDockApiKey.Password.Trim();
-            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-3.8-flash";
+            string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-2.5-flash";
 
             BtnDockRefine.IsEnabled = false;
             DockProgBar.IsIndeterminate = true;
@@ -586,7 +586,7 @@ namespace ParametricFamilyForge.UI
                 _handler.CurrentSchema = _currentSchema;
                 _externalEvent.Raise();
 
-                await RunPdfRescan();
+                _ = Task.Run(async () => { try { await RunPdfRescan(); } catch { } });
                 TxtDockRefinePrompt.Clear();
             }
             catch (Exception ex)

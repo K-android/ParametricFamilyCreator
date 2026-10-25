@@ -7,18 +7,33 @@ using Autodesk.Revit.UI;
 namespace ParametricFamilyForge
 {
     /// <summary>
-    /// Revit Add-in entry point. Creates custom Ribbon Tab and Ribbon Panel.
+    /// Revit Add-in entry point. Creates custom Ribbon Tab, Ribbon Panel, and registers Dockable Pane.
     /// </summary>
     public class App : IExternalApplication
     {
         public const string TabName = "AI Family Forge";
         public const string PanelName = "Parametric Generation";
 
+        public static readonly DockablePaneId PaneId = new DockablePaneId(new Guid("D8F5C4A2-9E1B-4C6A-8A2F-5B3D7E9C1A0F"));
+        public static ParametricFamilyForge.UI.ForgeDockablePanel? DockablePanelInstance { get; private set; }
+        public static ExternalEvent? GlobalExternalEvent { get; private set; }
+        public static ParametricFamilyForge.RevitEngine.FamilyGenerationHandler? GlobalHandler { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
             {
-                // Create Ribbon Tab
+                // 1. Register Native Revit Dockable Pane
+                try
+                {
+                    GlobalHandler = new ParametricFamilyForge.RevitEngine.FamilyGenerationHandler();
+                    GlobalExternalEvent = ExternalEvent.Create(GlobalHandler);
+                    DockablePanelInstance = new ParametricFamilyForge.UI.ForgeDockablePanel(GlobalExternalEvent, GlobalHandler);
+                    application.RegisterDockablePane(PaneId, "AI Family Forge (Step Modeler)", DockablePanelInstance);
+                }
+                catch { }
+
+                // 2. Create Ribbon Tab
                 try
                 {
                     application.CreateRibbonTab(TabName);
@@ -28,7 +43,7 @@ namespace ParametricFamilyForge
                     // Tab may already exist if shared across tools
                 }
 
-                // Create Ribbon Panel
+                // 3. Create Ribbon Panel
                 RibbonPanel panel = application.CreateRibbonPanel(TabName, PanelName);
 
                 // Add Push Button
@@ -40,8 +55,8 @@ namespace ParametricFamilyForge
                     "ParametricFamilyForge.Commands.LaunchForgeCommand"
                 )
                 {
-                    ToolTip = "Generate AI-driven parametric Revit families with nested sub-components and parameter bindings.",
-                    LongDescription = "Input a sketch, cut-sheet PDF, or prompt to synthesize complete Revit .rfa families using Gemini Vision or deterministic AEC rules."
+                    ToolTip = "Step-by-step verified parametric family builder with boolean void cuts and AI spec rescan.",
+                    LongDescription = "Opens the native dockable panel to create parametric families step-by-step: Specs -> Skeleton -> Solids -> Voids -> Details -> PDF Rescan Review."
                 };
 
                 // Configure Ribbon Icons (32x32 for large button, 16x16 for small button)

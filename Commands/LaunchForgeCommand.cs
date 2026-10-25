@@ -17,18 +17,38 @@ namespace ParametricFamilyForge.Commands
         {
             try
             {
-                // If window already open, bring to front
+                // 1. Try to toggle native Revit Dockable Pane
+                try
+                {
+                    DockablePane pane = commandData.Application.GetDockablePane(App.PaneId);
+                    if (pane != null)
+                    {
+                        if (pane.IsShown())
+                        {
+                            pane.Hide();
+                        }
+                        else
+                        {
+                            pane.Show();
+                        }
+                        return Result.Succeeded;
+                    }
+                }
+                catch
+                {
+                    // If dockable pane was not registered (e.g. running outside startup lifecycle), fall back to window
+                }
+
+                // 2. Fallback to modeless WPF Window if pane not available
                 if (_forgeWindow != null && _forgeWindow.IsLoaded)
                 {
                     _forgeWindow.Activate();
                     return Result.Succeeded;
                 }
 
-                // Initialize Revit ExternalEventHandler and ExternalEvent bridge
-                var handler = new FamilyGenerationHandler();
-                ExternalEvent externalEvent = ExternalEvent.Create(handler);
+                var handler = App.GlobalHandler ?? new FamilyGenerationHandler();
+                ExternalEvent externalEvent = App.GlobalExternalEvent ?? ExternalEvent.Create(handler);
 
-                // Create and show modeless WPF window
                 _forgeWindow = new ForgeWindow(externalEvent, handler);
                 _forgeWindow.Closed += (s, e) => _forgeWindow = null;
                 _forgeWindow.Show();

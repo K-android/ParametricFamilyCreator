@@ -834,28 +834,35 @@ namespace ParametricFamilyForge.RevitEngine
             if (maxX <= minX) maxX = minX + MmToFeet(10.0);
             if (maxY <= minY) maxY = minY + MmToFeet(10.0);
             if (endZ <= startZ) endZ = startZ + MmToFeet(5.0);
-            double extrusionHeight = Math.Max(endZ - startZ, MmToFeet(2.0));
 
             CurveArrArray profile = BuildExtrusionProfile(extDef, minX, maxX, minY, maxY);
 
             bool isSolid = !extDef.IsVoid;
+            // In Revit Family Editor, sketchPlane is at Z=0.
+            // By passing initialEnd = Math.Max(endZ, MmToFeet(5.0)), Revit creates the extrusion with End already at endZ.
+            // This prevents the critical Revit bug where startParam > initialEnd fails silently!
+            double initialEnd = Math.Max(endZ, MmToFeet(5.0));
             Extrusion extrusion = doc.FamilyCreate.NewExtrusion(
                 isSolid,
                 profile,
                 sketchPlane,
-                extrusionHeight
+                initialEnd
             );
 
             Parameter startParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_START_PARAM);
             Parameter endParam = extrusion.get_Parameter(BuiltInParameter.EXTRUSION_END_PARAM);
 
-            if (startParam != null && !startParam.IsReadOnly)
+            // CRITICAL REVIT API RULE: EXTRUSION_START_PARAM CANNOT BE GREATER THAN EXTRUSION_END_PARAM.
+            // If endZ >= startZ, set endParam FIRST (expanding upper limit), then set startParam.
+            if (endZ >= startZ)
             {
-                startParam.Set(startZ);
+                if (endParam != null && !endParam.IsReadOnly) endParam.Set(endZ);
+                if (startParam != null && !startParam.IsReadOnly) startParam.Set(startZ);
             }
-            if (endParam != null && !endParam.IsReadOnly)
+            else
             {
-                endParam.Set(endZ);
+                if (startParam != null && !startParam.IsReadOnly) startParam.Set(startZ);
+                if (endParam != null && !endParam.IsReadOnly) endParam.Set(endZ);
             }
 
             if (!isSolid)
@@ -1139,16 +1146,13 @@ namespace ParametricFamilyForge.RevitEngine
                 sketchPlane
             );
 
-            if (tOffsetFeet >= bOffsetFeet)
-            {
-                blend.TopOffset = tOffsetFeet;
-                blend.BottomOffset = bOffsetFeet;
-            }
-            else
-            {
-                blend.BottomOffset = bOffsetFeet;
-                blend.TopOffset = tOffsetFeet;
-            }
+            double maxOff = Math.Max(tOffsetFeet, bOffsetFeet);
+            double minOff = Math.Min(tOffsetFeet, bOffsetFeet);
+            if (maxOff <= minOff) maxOff = minOff + MmToFeet(5.0);
+
+            // In Revit API, always expand TopOffset first so BottomOffset never exceeds TopOffset
+            blend.TopOffset = maxOff;
+            blend.BottomOffset = minOff;
 
             if (!isSolid)
             {

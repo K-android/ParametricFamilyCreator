@@ -2384,16 +2384,17 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 },
                 HostExtrusions = new List<ExtrusionDef>
                 {
-                    // 1. Ceramic Upper Rim Deck (Flat rear faucet ledge + bow-front rim perimeter)
+                    // 1. Unified Ceramic Basin Body (178mm deep ceramic shell with hollow inner cavity and rear faucet deck)
                     new()
                     {
-                        Name = "Basin_Upper_Rim_Deck",
-                        ProfileType = rimProfile,
+                        Name = "Basin_Main_Ceramic_Body",
+                        ProfileType = "HollowDShape",
+                        WallThickness_mm = 35.0,
                         MinX_mm = -halfW,
                         MaxX_mm = halfW,
                         MinY_mm = -depth,
                         MaxY_mm = 0,
-                        StartZ_mm = rimDeckStartZ,
+                        StartZ_mm = basinBottomZ,
                         EndZ_mm = basinTopZ,
                         WidthParameter = "Width",
                         DepthParameter = "Depth",
@@ -2401,21 +2402,35 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MaterialParameter = "Ceramic_Material",
                         Subcategory = "Basin"
                     },
-                    // 2. Inner Hollow Basin Bowl Cavity (VOID Extrusion: Carves genuine hollow interior)
+                    // 2. Solid Bowl Floor Base (Closes bottom of basin bowl beneath cavity)
+                    new()
+                    {
+                        Name = "Basin_Bowl_Dish_Floor",
+                        ProfileType = "DShape",
+                        MinX_mm = -halfW + 35.0,
+                        MaxX_mm = halfW - 35.0,
+                        MinY_mm = -depth + 35.0,
+                        MaxY_mm = -85.0,
+                        StartZ_mm = basinBottomZ,
+                        EndZ_mm = basinBottomZ + 35.0,
+                        MaterialParameter = "Ceramic_Material",
+                        Subcategory = "Basin"
+                    },
+                    // 3. Inner Hollow Basin Bowl Cavity (VOID Extrusion: Cleans and carves inner bowl cavity)
                     new()
                     {
                         Name = "Basin_Inner_Bowl_Void",
-                        ProfileType = rimProfile,
+                        ProfileType = "DShape",
                         IsVoid = true,
                         MinX_mm = -halfW + 35.0,
                         MaxX_mm = halfW - 35.0,
                         MinY_mm = -depth + 35.0,
                         MaxY_mm = -85.0, // leaves 85mm rear faucet mounting deck
-                        StartZ_mm = basinTopZ - bowlDepth,
+                        StartZ_mm = basinBottomZ + 25.0,
                         EndZ_mm = basinTopZ + 15.0, // cuts cleanly out through top rim face
                         Subcategory = "Basin"
                     },
-                    // 3. Faucet Tap Hole Cutout (VOID Extrusion: 35mm dia standard mixer hole)
+                    // 4. Faucet Tap Hole Cutout (VOID Extrusion: 35mm dia standard mixer hole)
                     new()
                     {
                         Name = "Faucet_Tap_Hole_Void",
@@ -2426,10 +2441,25 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MinY_mm = -68,
                         MaxY_mm = -32,
                         Radius_mm = 18,
-                        StartZ_mm = basinBottomZ - 20,
+                        StartZ_mm = basinTopZ - 40,
                         EndZ_mm = basinTopZ + 15
                     },
-                    // 4. Waste Drain Hole Cutout (VOID Extrusion: 46mm dia waste hole in bottom of bowl)
+                    // 5. Overflow Hole Cutout (VOID Extrusion: 24mm dia overflow in rear vertical bowl wall)
+                    new()
+                    {
+                        Name = "Basin_Overflow_Hole_Void",
+                        ProfileType = "Cylinder",
+                        IsVoid = true,
+                        MinX_mm = -12,
+                        MaxX_mm = 12,
+                        MinY_mm = -95,
+                        MaxY_mm = -45,
+                        Radius_mm = 12,
+                        StartZ_mm = basinTopZ - 50,
+                        EndZ_mm = basinTopZ - 26,
+                        Subcategory = "Basin"
+                    },
+                    // 6. Waste Drain Hole Cutout (VOID Extrusion: 46mm dia waste hole in bottom of bowl)
                     new()
                     {
                         Name = "Waste_Drain_Hole_Void",
@@ -2441,9 +2471,9 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         MaxY_mm = -230 + 23,
                         Radius_mm = 23,
                         StartZ_mm = basinBottomZ - 20,
-                        EndZ_mm = basinTopZ - bowlDepth + 15
+                        EndZ_mm = basinBottomZ + 45
                     },
-                    // 5. Chrome Mixer Tap - Base Collar Flange
+                    // 7. Chrome Mixer Tap - Base Collar Flange
                     new()
                     {
                         Name = "Chrome_Tap_Base_Collar",
@@ -2458,7 +2488,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                         Subcategory = "Hardware",
                         MaterialParameter = "Chrome_Finish"
                     },
-                    // 6. Chrome Mixer Tap - Vertical Cylindrical Pillar Body
+                    // 8. Chrome Mixer Tap - Vertical Cylindrical Pillar Body
                     new()
                     {
                         Name = "Chrome_Tap_Main_Body",
@@ -2543,15 +2573,15 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 MaterialParameter = "Ceramic_Material"
             });
 
-            // 11. Half-Pedestal Shroud or Full-Pedestal Column (Smooth Architectural Blend)
+            // 11. Half-Pedestal Shroud or Full-Pedestal Column (Smooth Architectural Blend & Solid Wall-Hung Body)
             if (hasPedestal)
             {
-                double pedTopW = Math.Min(280.0, width * 0.52);
-                double pedTopD = Math.Min(220.0, depth * 0.55);
-                double pedBotW = isHalfPedestal ? 80.0 : Math.Min(180.0, width * 0.35);
-                double pedBotD = isHalfPedestal ? 120.0 : Math.Min(160.0, depth * 0.40);
-                double pedStartZ = isHalfPedestal ? 350.0 : 0.0;
-                double pedEndZ = basinBottomZ + 5.0; // joins seamlessly into basin underside
+                double pedTopW = Math.Min(260.0, width * 0.48);
+                double pedTopD = Math.Min(220.0, depth * 0.52);
+                double pedBotW = isHalfPedestal ? Math.Min(160.0, width * 0.30) : 180.0;
+                double pedBotD = isHalfPedestal ? Math.Min(140.0, depth * 0.35) : 160.0;
+                double pedStartZ = isHalfPedestal ? 345.0 : 0.0;
+                double pedEndZ = basinBottomZ + 15.0; // 15mm overlap inside the basin bottom (687mm)
 
                 schema.HostBlends.Add(new BlendDef
                 {
@@ -2568,6 +2598,20 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     TopMaxY_mm = 0,
                     BottomOffset_mm = pedStartZ,
                     TopOffset_mm = pedEndZ,
+                    Subcategory = "Pedestal",
+                    MaterialParameter = "Ceramic_Material"
+                });
+
+                schema.HostExtrusions.Add(new ExtrusionDef
+                {
+                    Name = "Pedestal_Upper_Wall_Mount",
+                    ProfileType = "DShape",
+                    MinX_mm = -pedTopW / 2.0,
+                    MaxX_mm = pedTopW / 2.0,
+                    MinY_mm = -pedTopD,
+                    MaxY_mm = 0,
+                    StartZ_mm = pedStartZ + (pedEndZ - pedStartZ) * 0.5,
+                    EndZ_mm = pedEndZ,
                     Subcategory = "Pedestal",
                     MaterialParameter = "Ceramic_Material"
                 });
@@ -2600,8 +2644,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     Domain = "Pipe",
                     SystemType = "Sanitary",
                     Diameter_mm = 32.0,
-                    OriginOffsetMm = new VectorOffsetDef(0, -230.0, 540.0), // matches 540mm waste line from RAK cut sheet!
-                    Direction = "-Z"
+                    OriginOffsetMm = new VectorOffsetDef(0, -180.0, 540.0), // matches 540mm waste line from RAK cut sheet!
+                    Direction = "-Y" // points back into the wall rough-in pipe
                 }
             };
 

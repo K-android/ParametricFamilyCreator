@@ -270,6 +270,10 @@ namespace ParametricFamilyForge.UI
             {
                 double bowlDepth = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Bowl_Depth", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 140.0;
 
+                double bowlRadius = Math.Min((width / 2.0) - 40.0, (depth - 100.0) / 2.0);
+                if (bowlRadius < 60.0) bowlRadius = 120.0;
+                double bowlCenterY = -95.0 - bowlRadius;
+
                 if (schema.HostRevolves.Count == 0)
                 {
                     schema.HostRevolves.Add(new RevolveDef
@@ -278,10 +282,10 @@ namespace ParametricFamilyForge.UI
                         IsVoid = true,
                         RevolveType = "BowlDish",
                         AxisX_mm = 0,
-                        AxisY_mm = -depth * 0.45,
+                        AxisY_mm = bowlCenterY,
                         StartZ_mm = height - bowlDepth,
-                        EndZ_mm = height + 5.0,
-                        Radius_mm = (width / 2.0) - 35.0,
+                        EndZ_mm = height + 10.0,
+                        Radius_mm = bowlRadius,
                         InnerRadius_mm = 0.0,
                         StartAngleDeg = 0.0,
                         EndAngleDeg = 360.0,
@@ -294,7 +298,7 @@ namespace ParametricFamilyForge.UI
                         IsVoid = false,
                         RevolveType = "Cylinder",
                         AxisX_mm = 0,
-                        AxisY_mm = -depth * 0.45,
+                        AxisY_mm = bowlCenterY,
                         StartZ_mm = height - bowlDepth - 5.0,
                         EndZ_mm = height - bowlDepth + 8.0,
                         Radius_mm = 38.0,

@@ -351,48 +351,44 @@ namespace ParametricFamilyForge.RevitEngine
                     int successfulCuts = 0;
                     foreach (var voidElem in createdVoids)
                     {
-                        if (!SolidSolidCutUtils.IsAllowedForSolidCut(voidElem)) continue;
-                        var existingCutSolids = SolidSolidCutUtils.GetSolidsBeingCut(voidElem);
+                        ICollection<ElementId>? existingCutSolids = null;
+                        try { existingCutSolids = SolidSolidCutUtils.GetSolidsBeingCut(voidElem); } catch { }
 
                         foreach (var solidElem in createdSolids)
                         {
-                            if (!SolidSolidCutUtils.IsAllowedForSolidCut(solidElem)) continue;
-
                             // 1. Check if Revit's engine already cut this solid upon creation
-                            if (existingCutSolids.Contains(solidElem.Id))
+                            if (existingCutSolids != null && existingCutSolids.Contains(solidElem.Id))
                             {
                                 successfulCuts++;
                                 onLog?.Invoke($"[Void Cut VERIFIED] '{voidElem.Name}' is actively cutting '{solidElem.Name}'.");
                                 continue;
                             }
 
-                            // 2. Test if elements intersect and can cut
+                            bool cutSucceeded = false;
+                            // 2. Try AddCutBetweenSolids
                             try
                             {
-                                if (SolidSolidCutUtils.CanElementCutElement(voidElem, solidElem, out CutFailureReason reason))
-                                {
-                                    SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
-                                    successfulCuts++;
-                                    onLog?.Invoke($"[Void Cut SUCCESS] '{voidElem.Name}' cleanly cut solid '{solidElem.Name}'.");
-                                }
-                                else
-                                {
-                                    // Try direct cut: CanElementCutElement can sometimes report non-intersection for coplanar faces
-                                    try
-                                    {
-                                        SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
-                                        successfulCuts++;
-                                        onLog?.Invoke($"[Void Cut SUCCESS (Direct)] '{voidElem.Name}' cut solid '{solidElem.Name}'.");
-                                    }
-                                    catch
-                                    {
-                                        // Elements do not geometrically intersect (e.g. tap hole void doesn't intersect pedestal)
-                                    }
-                                }
+                                SolidSolidCutUtils.AddCutBetweenSolids(masterDoc, solidElem, voidElem);
+                                successfulCuts++;
+                                cutSucceeded = true;
+                                onLog?.Invoke($"[Void Cut SUCCESS] '{voidElem.Name}' cleanly cut solid '{solidElem.Name}'.");
                             }
-                            catch (Exception cutEx)
+                            catch { }
+
+                            // 3. Fallback: try CombineElements
+                            if (!cutSucceeded)
                             {
-                                onLog?.Invoke($"[Void Cut Warning] Cut failed between '{solidElem.Name}' and '{voidElem.Name}': {cutEx.Message}");
+                                try
+                                {
+                                    var combo = new CombinableElementArray();
+                                    combo.Append(solidElem);
+                                    combo.Append(voidElem);
+                                    masterDoc.CombineElements(combo);
+                                    successfulCuts++;
+                                    cutSucceeded = true;
+                                    onLog?.Invoke($"[CombineElements Cut] '{voidElem.Name}' combined with '{solidElem.Name}'.");
+                                }
+                                catch { }
                             }
                         }
                     }
@@ -765,6 +761,37 @@ namespace ParametricFamilyForge.RevitEngine
                 dLoop.Append(Line.CreateBound(p3, p4));
                 dLoop.Append(Arc.Create(p4, p1, pMid));
                 profile.Append(dLoop);
+
+                // If hollow or wall thickness specified, bake the inner bowl cavity loop directly into the sketch!
+                if (extDef.WallThickness_mm > 0 || pType.Contains("hollow"))
+                {
+                    double wt = extDef.WallThickness_mm > 0 ? MmToFeet(extDef.WallThickness_mm) : MmToFeet(35.0);
+                    double rearLedge = MmToFeet(85.0); // leaves 85mm solid rear deck for faucet mounting
+
+                    double iMinX = minX + wt;
+                    double iMaxX = maxX - wt;
+                    double iMinY = minY + wt;
+                    double iMaxY = maxY - rearLedge;
+
+                    if (iMaxX > iMinX + MmToFeet(20.0) && iMaxY > iMinY + MmToFeet(20.0))
+                    {
+                        double iYSplit = iMaxY - (iMaxY - iMinY) * 0.40;
+                        if (iYSplit <= iMinY + MmToFeet(2.0)) iYSplit = (iMinY + iMaxY) / 2.0;
+
+                        XYZ ip1 = new XYZ(iMinX, iYSplit, 0);
+                        XYZ ip2 = new XYZ(iMinX, iMaxY, 0);
+                        XYZ ip3 = new XYZ(iMaxX, iMaxY, 0);
+                        XYZ ip4 = new XYZ(iMaxX, iYSplit, 0);
+                        XYZ ipMid = new XYZ((iMinX + iMaxX) / 2.0, iMinY, 0);
+
+                        CurveArray innerLoop = new CurveArray();
+                        innerLoop.Append(Line.CreateBound(ip1, ip2));
+                        innerLoop.Append(Line.CreateBound(ip2, ip3));
+                        innerLoop.Append(Line.CreateBound(ip3, ip4));
+                        innerLoop.Append(Arc.Create(ip4, ip1, ipMid));
+                        profile.Append(innerLoop);
+                    }
+                }
             }
             else if (pType == "roundedrectangle" || pType == "fillet" || pType == "filletbox" || extDef.CornerRadius_mm > 0)
             {
@@ -1529,8 +1556,10 @@ namespace ParametricFamilyForge.RevitEngine
                     XYZ targetNormal = ParseNormal(mep.Direction);
 
                     Reference? faceRef = null;
+                    PlanarFace? bestFace = null;
+                    double bestDist = double.MaxValue;
 
-                    // 1. Find a solid planar face close to the connector origin and normal
+                    // 1. Find a solid planar face close to the connector origin and normal (avoiding top rim)
                     foreach (var elem in createdSolids)
                     {
                         GeometryElement geom = elem.get_Geometry(opt);
@@ -1543,43 +1572,32 @@ namespace ParametricFamilyForge.RevitEngine
                                 {
                                     if (f is PlanarFace pf && pf.Reference != null)
                                     {
-                                        if (pf.FaceNormal.DotProduct(targetNormal) > 0.7)
+                                        // Ignore faces near the top rim elevation
+                                        if (pf.Origin.Z > MmToFeet(800.0) && targetPoint.Z < MmToFeet(750.0)) continue;
+
+                                        double dist = pf.Origin.DistanceTo(targetPoint);
+                                        double alignment = pf.FaceNormal.DotProduct(targetNormal);
+                                        if (alignment > 0.3)
                                         {
-                                            faceRef = pf.Reference;
-                                            break;
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                bestFace = pf;
+                                            }
+                                        }
+                                        else if (bestFace == null && dist < MmToFeet(200.0))
+                                        {
+                                            bestFace = pf;
                                         }
                                     }
                                 }
                             }
-                            if (faceRef != null) break;
                         }
-                        if (faceRef != null) break;
                     }
 
-                    // 2. Fallback: pick any available planar face
-                    if (faceRef == null)
+                    if (bestFace != null && (bestDist < MmToFeet(400.0) || bestFace.Origin.Z < MmToFeet(750.0)))
                     {
-                        foreach (var elem in createdSolids)
-                        {
-                            GeometryElement geom = elem.get_Geometry(opt);
-                            if (geom == null) continue;
-                            foreach (GeometryObject obj in geom)
-                            {
-                                if (obj is Solid s && s.Faces.Size > 0)
-                                {
-                                    foreach (Face f in s.Faces)
-                                    {
-                                        if (f is PlanarFace pf && pf.Reference != null)
-                                        {
-                                            faceRef = pf.Reference;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (faceRef != null) break;
-                            }
-                            if (faceRef != null) break;
-                        }
+                        faceRef = bestFace.Reference;
                     }
 
                     if (faceRef == null) continue;

@@ -246,7 +246,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             // 3. Clean up and normalize model name
             string cleanModel = NormalizeModelName(modelName);
 
-            ReportStatus($"ðŸ” Checking available Gemini 3 / 4 models for your API key...");
+            ReportStatus($"ðŸ” Checking available Gemini models for your API key...");
             List<string> availableModels = await GetAvailableModelsAsync(apiKey, cancellationToken);
 
             var errors = new List<string>();
@@ -312,7 +312,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             }
 
             throw new InvalidOperationException(
-                "All Gemini 3 / Gemini 4 models failed:\n  â€¢ " + string.Join("\n  â€¢ ", errors));
+                "All Gemini models failed:\n  â€¢ " + string.Join("\n  â€¢ ", errors));
         }
 
         /// <summary>
@@ -760,14 +760,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             int paren = m.IndexOf(' ');
             if (paren > 0) m = m.Substring(0, paren);
             if (m.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) m = m.Substring(7);
-            if (m.Equals("gemini-3.8", StringComparison.OrdinalIgnoreCase) || m.Equals("gemini-3", StringComparison.OrdinalIgnoreCase))
-                m = "gemini-3.8-flash";
-            else if (m.Equals("gemini-3.6", StringComparison.OrdinalIgnoreCase))
-                m = "gemini-3.6-flash";
-            else if (m.Equals("gemini-4", StringComparison.OrdinalIgnoreCase))
-                m = "gemini-4-argon";
-            else if (m.Contains("1.5") || m.Contains("2.0") || m.Contains("2.5"))
-                m = "gemini-3.8-flash";
+            if (m.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase) || m.StartsWith("gemini-4", StringComparison.OrdinalIgnoreCase))
+                m = DefaultGeminiModel;
             return m;
         }
 
@@ -812,8 +806,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                                 if (meth.GetString() == "generateContent") { canGenerate = true; break; }
                             }
                         }
-                        if (canGenerate && (name.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase) ||
-                                            name.StartsWith("gemini-4", StringComparison.OrdinalIgnoreCase)))
+                        if (canGenerate && !IsUnsuitableModel(name))
                         {
                             result.Add(name);
                         }
@@ -827,14 +820,13 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             return result;
         }
 
-        private static readonly string[] Gemini3And4Models =
+        private static readonly string[] SupportedGeminiModels =
         {
-            "gemini-3.8-flash",
-            "gemini-4-argon",
-            "gemini-3.1-flash-lite",
-            "gemini-3-flash-preview",
-            "gemini-3-pro-preview",
-            "gemini-3.6-flash"
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro",
+            "gemini-1.5-pro"
         };
 
         private static bool IsUnsuitableModel(string name)
@@ -846,18 +838,23 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
         private static List<string> BuildCandidateList(string userModel, List<string> available)
         {
-            var list = new List<string> { userModel };
-
-            foreach (var m in Gemini3And4Models.Where(p => available.Contains(p, StringComparer.OrdinalIgnoreCase))
-                         .Concat(available.Where(a => !IsUnsuitableModel(a)).OrderByDescending(a => a)))
+            var list = new List<string>();
+            if (!string.IsNullOrWhiteSpace(userModel) && !userModel.Equals("offline", StringComparison.OrdinalIgnoreCase))
             {
-                if (!list.Contains(m, StringComparer.OrdinalIgnoreCase))
-                    list.Add(m);
+                list.Add(userModel);
             }
 
-            foreach (var m in Gemini3And4Models)
+            foreach (var m in SupportedGeminiModels)
             {
-                if (list.Count >= 2) break;
+                if (available.Contains(m, StringComparer.OrdinalIgnoreCase) && !list.Contains(m, StringComparer.OrdinalIgnoreCase))
+                {
+                    list.Add(m);
+                }
+            }
+
+            foreach (var m in SupportedGeminiModels)
+            {
+                if (list.Count >= 3) break;
                 if (!list.Contains(m, StringComparer.OrdinalIgnoreCase))
                     list.Add(m);
             }
@@ -1417,8 +1414,25 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             string nameSource = !string.IsNullOrWhiteSpace(prompt) ? prompt : docText;
             switch (category)
             {
-                case "basin": return CreateBasinSchema(w, dep, h, t, nameSource);
-                case "plumbing": return CreateBasinSchema(w, dep, h, t, nameSource);
+                case "basin":
+                case "plumbing":
+                    var basinSpec = new ExtractedCutSheetSpec
+                    {
+                        Archetype = nameSource.Contains("counter") || nameSource.Contains("vessel") ? "CountertopBasin" : "SemiPedestalBasin",
+                        OverallWidthMm = w,
+                        OverallDepthMm = dep,
+                        OverallHeightMm = h,
+                        RevitCategory = "Plumbing Fixtures",
+                        Manufacturer = "AEC Rig"
+                    };
+                    basinSpec.SetParam("Width", w, DimensionDatums.Centerline, 1.0);
+                    basinSpec.SetParam("Depth", dep, DimensionDatums.WallFace, 1.0);
+                    basinSpec.SetParam("Height", h, DimensionDatums.Floor, 1.0);
+                    basinSpec.SetParam("Basin_Body_Height", Math.Min(195.0, h * 0.45), DimensionDatums.RimLevel, 0.95);
+                    basinSpec.SetParam("Bowl_Depth", Math.Min(145.0, h * 0.35), DimensionDatums.RimLevel, 0.95);
+                    basinSpec.SetParam("Pedestal_Height", 320.0, DimensionDatums.Floor, 0.95);
+                    var basinRig = ArchetypeRigRegistry.ResolveRig(basinSpec.Archetype, nameSource);
+                    return basinRig.BuildSchema(basinSpec, s => report.AppendLine(s));
                 case "door": return CreateDoorSchema(w, h, t);
                 case "window": return CreateWindowSchema(w, h, dep);
                 case "chair": return CreateChairSchema(w, dep, h, t);

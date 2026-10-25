@@ -36,6 +36,17 @@ namespace ParametricFamilyForge.UI
 
             _settings = SettingsService.LoadSettings();
             TxtDockApiKey.Password = _settings.ApiKey;
+            if (!string.IsNullOrWhiteSpace(_settings.ModelEngine))
+            {
+                foreach (ComboBoxItem item in CmbDockModel.Items)
+                {
+                    if (string.Equals(item.Tag?.ToString(), _settings.ModelEngine, StringComparison.OrdinalIgnoreCase))
+                    {
+                        CmbDockModel.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
 
             _handler.OnLog = msg => Dispatcher.Invoke(() => LogMessage(msg));
             _handler.OnCompleted = (success, resultPath) => Dispatcher.Invoke(() =>
@@ -80,6 +91,13 @@ namespace ParametricFamilyForge.UI
             string model = (CmbDockModel.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "gemini-2.5-flash";
             string archetype = (CmbArchetype.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
 
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                _settings.ApiKey = apiKey;
+                _settings.ModelEngine = model;
+                SettingsService.SaveSettings(_settings);
+            }
+
             BtnGenerateFamily.IsEnabled = false;
             DockProgBar.IsIndeterminate = false;
             DockProgBar.Value = 10;
@@ -113,6 +131,8 @@ namespace ParametricFamilyForge.UI
                             model,
                             0.2
                         );
+                        string fileName = !string.IsNullOrEmpty(_selectedFilePath) ? Path.GetFileName(_selectedFilePath) : "prompt";
+                        LogMessage($"[AI Vision Success] Extracted {_currentSchema.MasterParameters.Count} parameters & {_currentSchema.HostExtrusions.Count} solids from {fileName} via {model}.");
                     }
                     catch (Exception ex)
                     {
@@ -275,7 +295,9 @@ namespace ParametricFamilyForge.UI
                 if (bowlRadius < 60.0) bowlRadius = 120.0;
                 double bowlCenterY = -95.0 - bowlRadius;
 
-                if (schema.HostRevolves.Count == 0)
+                bool alreadyHasRigCavity = schema.HostExtrusions.Any(e => e.Name.Contains("Basin_Main", StringComparison.OrdinalIgnoreCase) || e.Name.Contains("Vessel", StringComparison.OrdinalIgnoreCase) || e.ProfileType.Equals("HollowDShape", StringComparison.OrdinalIgnoreCase));
+
+                if (!alreadyHasRigCavity && schema.HostRevolves.Count == 0)
                 {
                     schema.HostRevolves.Add(new RevolveDef
                     {

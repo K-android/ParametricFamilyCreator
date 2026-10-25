@@ -309,7 +309,23 @@ namespace ParametricFamilyForge.RevitEngine
                     }
                 }
 
-                // 4c. Create Host Sweeps (curved spouts, grab bars, rails, moldings)
+                // 4c. Create Host Revolutions (curved dished bowls, organic cavities, bottle traps, circular columns)
+                if (schema.HostRevolves != null)
+                {
+                    foreach (var revDef in schema.HostRevolves)
+                    {
+                        try
+                        {
+                            CreateHostRevolve(masterDoc, famMgr, revDef, paramDict, createdSolids, createdVoids, onLog);
+                        }
+                        catch (Exception ex)
+                        {
+                            onLog?.Invoke($"[Geometry Error] Revolution '{revDef.Name}': {ex.Message}");
+                        }
+                    }
+                }
+
+                // 4d. Create Host Sweeps (curved spouts, grab bars, rails, moldings)
                 if (schema.HostSweeps != null)
                 {
                     foreach (var sweepDef in schema.HostSweeps)
@@ -448,6 +464,9 @@ namespace ParametricFamilyForge.RevitEngine
                         try { famMgr.CurrentType = primaryType; } catch { }
                     }
                 }
+
+                // 6b. Automated Parametric Flex Verification across catalog types
+                VerifyFamilyFlexing(masterDoc, schema, onLog);
 
                 masterDoc.Regenerate();
                 trans.Commit();
@@ -1804,6 +1823,204 @@ namespace ParametricFamilyForge.RevitEngine
                     try { famMgr.AssociateElementParameterToFamilyParameter(visParam, masterVisParam); } catch { }
                 }
             }
+        }
+
+        private static void CreateHostRevolve(
+            Document doc,
+            FamilyManager famMgr,
+            RevolveDef revDef,
+            Dictionary<string, FamilyParameter> paramDict,
+            List<CombinableElement> createdSolids,
+            List<CombinableElement> createdVoids,
+            Action<string>? onLog = null)
+        {
+            double axisX = MmToFeet(revDef.AxisX_mm);
+            double axisY = MmToFeet(revDef.AxisY_mm);
+            double startZ = MmToFeet(revDef.StartZ_mm);
+            double endZ = MmToFeet(revDef.EndZ_mm);
+            double radius = MmToFeet(revDef.Radius_mm > 0 ? revDef.Radius_mm : 150.0);
+            double innerRadius = MmToFeet(Math.Max(0.0, revDef.InnerRadius_mm));
+
+            if (endZ <= startZ) endZ = startZ + MmToFeet(50.0);
+            if (radius <= MmToFeet(5.0)) radius = MmToFeet(150.0);
+            if (innerRadius >= radius) innerRadius = radius * 0.5;
+
+            // Revolution axis is along Z at (axisX, axisY).
+            // Plane normal is BasisY, passing through (axisX, axisY, 0).
+            Plane revPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisY, new XYZ(axisX, axisY, 0));
+            SketchPlane sketchPlane = SketchPlane.Create(doc, revPlane);
+
+            // Axis line lies strictly in the sketchPlane along the Z direction
+            XYZ axisPt1 = new XYZ(axisX, axisY, startZ - MmToFeet(100.0));
+            XYZ axisPt2 = new XYZ(axisX, axisY, endZ + MmToFeet(100.0));
+            Line axisLine = Line.CreateBound(axisPt1, axisPt2);
+
+            CurveArray loop = new CurveArray();
+            string rType = revDef.RevolveType?.Trim().ToLowerInvariant() ?? "bowldish";
+
+            if (rType.Contains("bowl") || rType.Contains("dish") || rType.Contains("cavity"))
+            {
+                // Organic dished bowl profile:
+                // Top outer rim
+                XYZ ptRim = new XYZ(axisX + radius, axisY, endZ);
+                // Bottom center dish
+                XYZ ptBottom = new XYZ(axisX + innerRadius, axisY, startZ);
+                // Intermediate control point for smooth spherical / parabolic curvature
+                double midX = axisX + (radius + innerRadius) * 0.65;
+                double midZ = startZ + (endZ - startZ) * 0.30;
+                XYZ ptMid = new XYZ(midX, axisY, midZ);
+
+                loop.Append(Arc.Create(ptRim, ptBottom, ptMid));
+                if (innerRadius > 0.001)
+                {
+                    loop.Append(Line.CreateBound(ptBottom, new XYZ(axisX + innerRadius, axisY, endZ)));
+                    loop.Append(Line.CreateBound(new XYZ(axisX + innerRadius, axisY, endZ), ptRim));
+                }
+                else
+                {
+                    loop.Append(Line.CreateBound(ptBottom, new XYZ(axisX, axisY, endZ)));
+                    loop.Append(Line.CreateBound(new XYZ(axisX, axisY, endZ), ptRim));
+                }
+            }
+            else if (rType.Contains("cone") || rType.Contains("taper"))
+            {
+                double topR = radius;
+                double botR = innerRadius > 0 ? innerRadius : radius * 0.6;
+                XYZ p1 = new XYZ(axisX + botR, axisY, startZ);
+                XYZ p2 = new XYZ(axisX, axisY, startZ);
+                XYZ p3 = new XYZ(axisX, axisY, endZ);
+                XYZ p4 = new XYZ(axisX + topR, axisY, endZ);
+
+                loop.Append(Line.CreateBound(p1, p2));
+                loop.Append(Line.CreateBound(p2, p3));
+                loop.Append(Line.CreateBound(p3, p4));
+                loop.Append(Line.CreateBound(p4, p1));
+            }
+            else
+            {
+                // Cylinder, bottle trap, column, waste flange
+                XYZ p1 = new XYZ(axisX + radius, axisY, startZ);
+                XYZ p2 = new XYZ(axisX + innerRadius, axisY, startZ);
+                XYZ p3 = new XYZ(axisX + innerRadius, axisY, endZ);
+                XYZ p4 = new XYZ(axisX + radius, axisY, endZ);
+
+                loop.Append(Line.CreateBound(p1, p2));
+                loop.Append(Line.CreateBound(p2, p3));
+                loop.Append(Line.CreateBound(p3, p4));
+                loop.Append(Line.CreateBound(p4, p1));
+            }
+
+            CurveArrArray profileArr = new CurveArrArray();
+            profileArr.Append(loop);
+
+            double startAngle = revDef.StartAngleDeg * Math.PI / 180.0;
+            double endAngle = revDef.EndAngleDeg * Math.PI / 180.0;
+            if (endAngle <= startAngle) endAngle = startAngle + 2.0 * Math.PI;
+
+            bool isSolid = !revDef.IsVoid;
+            Revolution revolution = doc.FamilyCreate.NewRevolution(
+                isSolid,
+                profileArr,
+                sketchPlane,
+                axisLine,
+                startAngle,
+                endAngle
+            );
+
+            if (!isSolid)
+            {
+                createdVoids.Add(revolution);
+                onLog?.Invoke($"[Host Revolve] Created VOID '{revDef.Name}' (Cavity Dish Cut)");
+            }
+            else
+            {
+                createdSolids.Add(revolution);
+                onLog?.Invoke($"[Host Revolve] Created SOLID '{revDef.Name}'");
+            }
+
+            if (!string.IsNullOrEmpty(revDef.Subcategory))
+            {
+                EnsureSubcategory(doc, revDef.Subcategory);
+                Category? subCat = doc.Settings?.Categories?.get_Item(doc.OwnerFamily.FamilyCategory?.BuiltInCategory ?? BuiltInCategory.OST_GenericModel)
+                    ?.SubCategories?.get_Item(revDef.Subcategory);
+                if (subCat != null) revolution.Subcategory = subCat;
+            }
+
+            if (!string.IsNullOrEmpty(revDef.MaterialParameter) && revDef.MaterialParameter != null && paramDict.TryGetValue(revDef.MaterialParameter, out FamilyParameter? matParam))
+            {
+                Parameter? p = revolution.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                if (p != null && matParam != null)
+                {
+                    try { famMgr.AssociateElementParameterToFamilyParameter(p, matParam); } catch { }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(revDef.VisibilityParameter) && revDef.VisibilityParameter != null && paramDict.TryGetValue(revDef.VisibilityParameter, out FamilyParameter? visParam))
+            {
+                Parameter? vp = revolution.get_Parameter(BuiltInParameter.IS_VISIBLE_PARAM);
+                if (vp != null && visParam != null)
+                {
+                    try { famMgr.AssociateElementParameterToFamilyParameter(vp, visParam); } catch { }
+                }
+            }
+        }
+
+        public static List<string> VerifyFamilyFlexing(Document doc, FamilySchema schema, Action<string>? onLog = null)
+        {
+            var results = new List<string>();
+            if (schema.FamilyTypes == null || schema.FamilyTypes.Count == 0)
+            {
+                results.Add("No family types configured for flex testing.");
+                return results;
+            }
+
+            FamilyManager famMgr = doc.FamilyManager;
+            onLog?.Invoke($"[FLEX TEST RIG] Initiating automated parametric flex test across {schema.FamilyTypes.Count} types...");
+
+            foreach (var typeDef in schema.FamilyTypes)
+            {
+                if (string.IsNullOrWhiteSpace(typeDef.Name)) continue;
+                try
+                {
+                    using (SubTransaction sub = new SubTransaction(doc))
+                    {
+                        sub.Start();
+                        FamilyType? target = famMgr.Types.Cast<FamilyType>()
+                            .FirstOrDefault(t => t.Name.Equals(typeDef.Name, StringComparison.OrdinalIgnoreCase));
+                        if (target != null)
+                        {
+                            famMgr.CurrentType = target;
+                        }
+
+                        if (typeDef.ParameterValues != null)
+                        {
+                            foreach (var kvp in typeDef.ParameterValues)
+                            {
+                                FamilyParameter? p = famMgr.get_Parameter(kvp.Key);
+                                if (p != null && !p.IsReadOnly)
+                                {
+                                    ApplyDynamicValue(famMgr, p, kvp.Value);
+                                }
+                            }
+                        }
+
+                        doc.Regenerate();
+                        sub.Commit();
+
+                        string ok = $"✔ Type '{typeDef.Name}': Constraints satisfied & geometry regenerated successfully.";
+                        results.Add(ok);
+                        onLog?.Invoke($"[FLEX TEST] {ok}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    string err = $"✘ Type '{typeDef.Name}': Flex constraint violation: {ex.Message}";
+                    results.Add(err);
+                    onLog?.Invoke($"[FLEX TEST ERROR] {err}");
+                }
+            }
+
+            return results;
         }
     }
 

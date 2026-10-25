@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ParametricFamilyForge.Models;
 
@@ -76,10 +78,10 @@ namespace ParametricFamilyForge.RevitEngine
                         OnLog?.Invoke($"  ✔ Parameter Constraint: {p.Name} = {p.DefaultValueMm:0.##} mm");
                     }
                 }
-                int solidsCount = CurrentSchema.HostExtrusions.Count(e => !e.IsVoid) + CurrentSchema.HostBlends.Count(b => !b.IsVoid) + CurrentSchema.HostSweeps.Count(s => !s.IsVoid);
-                int voidsCount = CurrentSchema.HostExtrusions.Count(e => e.IsVoid) + CurrentSchema.HostBlends.Count(b => b.IsVoid);
-                OnLog?.Invoke($"  ✔ Solid Elements: {solidsCount} built (Extrusions, Blends, Sweeps)");
-                OnLog?.Invoke($"  ✔ Void Cut Cavities: {voidsCount} carved (Inner Bowl, Tap Hole, Drain Cutouts)");
+                int solidsCount = CurrentSchema.HostExtrusions.Count(e => !e.IsVoid) + CurrentSchema.HostBlends.Count(b => !b.IsVoid) + CurrentSchema.HostSweeps.Count(s => !s.IsVoid) + CurrentSchema.HostRevolves.Count(r => !r.IsVoid);
+                int voidsCount = CurrentSchema.HostExtrusions.Count(e => e.IsVoid) + CurrentSchema.HostBlends.Count(b => b.IsVoid) + CurrentSchema.HostRevolves.Count(r => r.IsVoid);
+                OnLog?.Invoke($"  ✔ Solid Elements: {solidsCount} built (Extrusions, Blends, Revolves, Sweeps)");
+                OnLog?.Invoke($"  ✔ Void Cut Cavities: {voidsCount} carved (Inner Revolve Bowl, Tap Hole, Drain Cutouts)");
                 if (CurrentSchema.MepConnectors != null && CurrentSchema.MepConnectors.Count > 0)
                 {
                     OnLog?.Invoke($"  ✔ MEP Engineering: {CurrentSchema.MepConnectors.Count} system connector(s) attached");
@@ -87,6 +89,34 @@ namespace ParametricFamilyForge.RevitEngine
                 if (CurrentSchema.SymbolicCurves != null && CurrentSchema.SymbolicCurves.Count > 0)
                 {
                     OnLog?.Invoke($"  ✔ 2D Symbolic Linework: {CurrentSchema.SymbolicCurves.Count} plan curve(s) projected");
+                }
+
+                // 3. Open and Activate Family Document in Revit UI (Live 3D Viewport Focus)
+                try
+                {
+                    if (File.Exists(finalMasterPath))
+                    {
+                        UIDocument activeUiDoc = uiApp.OpenAndActivateDocument(finalMasterPath);
+                        if (activeUiDoc != null)
+                        {
+                            View3D? view3d = new FilteredElementCollector(activeUiDoc.Document)
+                                .OfClass(typeof(View3D))
+                                .Cast<View3D>()
+                                .FirstOrDefault(v => !v.IsTemplate);
+
+                            if (view3d != null && activeUiDoc.ActiveView.Id != view3d.Id)
+                            {
+                                activeUiDoc.ActiveView = view3d;
+                            }
+
+                            activeUiDoc.RefreshActiveView();
+                            OnLog?.Invoke($"[3D VIEWPORT LIVE] Family '{CurrentSchema.MasterFamilyName}' opened and focused in 3D Family Editor!");
+                        }
+                    }
+                }
+                catch (Exception viewEx)
+                {
+                    OnLog?.Invoke($"[3D VIEWPORT NOTE] Master family generated at '{finalMasterPath}'. Note on opening: {viewEx.Message}");
                 }
 
                 OnCompleted?.Invoke(true, finalMasterPath);

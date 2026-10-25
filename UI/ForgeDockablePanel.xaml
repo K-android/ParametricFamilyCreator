@@ -4,7 +4,7 @@
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
       mc:Ignorable="d" 
-      d:DesignHeight="950" d:DesignWidth="440"
+      d:DesignHeight="1000" d:DesignWidth="440"
       Title="AI Family Forge" Background="#1E2227" Foreground="#ABB2BF"
       FontFamily="Segoe UI" FontSize="12">
 
@@ -17,6 +17,7 @@
         <SolidColorBrush x:Key="AccentAmber" Color="#E5C07B" />
         <SolidColorBrush x:Key="AccentRed" Color="#E06C75" />
         <SolidColorBrush x:Key="AccentTeal" Color="#56B6C2" />
+        <SolidColorBrush x:Key="AccentPurple" Color="#C678DD" />
 
         <Style TargetType="Button">
             <Setter Property="Background" Value="#3E4451" />
@@ -38,16 +39,12 @@
 
     <Grid Margin="10">
         <Grid.RowDefinitions>
-            <!-- Row 0: App Title & Model Engine Bar -->
+            <!-- Row 0: App Header & Engine Selection -->
             <RowDefinition Height="Auto" />
-            <!-- Row 1: Step Stepper Navigation -->
-            <RowDefinition Height="Auto" />
-            <!-- Row 2: Active Step Content (Scrollable) -->
+            <!-- Row 1: Main Scrollable Workflow Content -->
             <RowDefinition Height="*" />
-            <!-- Row 3: Step Action & Global Navigation Buttons -->
-            <RowDefinition Height="Auto" />
-            <!-- Row 4: Execution Log & Verification Status -->
-            <RowDefinition Height="125" />
+            <!-- Row 2: Live Engine Console Log -->
+            <RowDefinition Height="130" />
         </Grid.RowDefinitions>
 
         <!-- Row 0: Header & Engine Selection -->
@@ -61,21 +58,21 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="⚡ AI Family Forge" FontWeight="Bold" FontSize="13" Foreground="{StaticResource AccentBlue}" />
                         <Border Background="#2C313A" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                            <TextBlock Text="DOCKABLE BIM" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" />
+                            <TextBlock Text="PRO BIM DOCK" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" />
                         </Border>
                     </StackPanel>
-                    <TextBlock x:Name="TxtActiveDocStatus" Text="Step-by-step verified geometry generator" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+                    <TextBlock x:Name="TxtActiveDocStatus" Text="End-to-End Procedural &amp; Revolve Engine" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
                 </StackPanel>
 
-                <!-- Model Engine & Settings -->
+                <!-- Model Engine & Settings Button -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <ComboBox x:Name="CmbDockModel" Width="140" FontSize="11" Margin="0,0,6,0">
+                    <ComboBox x:Name="CmbDockModel" Width="135" FontSize="11" Margin="0,0,6,0">
                         <ComboBoxItem Content="gemini-3.8-flash" IsSelected="True" Tag="gemini-3.8-flash" />
                         <ComboBoxItem Content="gemini-4-argon" Tag="gemini-4-argon" />
                         <ComboBoxItem Content="gemini-3.1-flash-lite" Tag="gemini-3.1-flash-lite" />
                         <ComboBoxItem Content="Offline AEC Rules" Tag="offline" />
                     </ComboBox>
-                    <Button x:Name="BtnToggleSettings" Content="⚙️" ToolTip="Configure API Key and Directories" Width="28" Height="26" Padding="0" Click="BtnToggleSettings_Click" Background="#2C313A" />
+                    <Button x:Name="BtnToggleSettings" Content="⚙️" ToolTip="Configure API Key and Settings" Width="28" Height="26" Padding="0" Click="BtnToggleSettings_Click" Background="#2C313A" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -93,300 +90,214 @@
             </StackPanel>
         </Border>
 
-        <!-- Row 1: Step Stepper Navigation (6 Steps) -->
-        <Border Grid.Row="1" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="6,4" Margin="0,0,0,8">
-            <UniformGrid Columns="6">
-                <Button x:Name="BtnStepTab1" Click="StepTab_Click" Tag="1" Background="#2C313A" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="1. Specs" FontSize="9.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep1" Text="⏳" FontSize="9" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="BtnStepTab2" Click="StepTab_Click" Tag="2" Background="#21252B" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="2. Skel" FontSize="9.5" FontWeight="SemiBold" Foreground="#5C6370" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep2" Text="○" FontSize="9" Foreground="#5C6370" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="BtnStepTab3" Click="StepTab_Click" Tag="3" Background="#21252B" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="3. Solids" FontSize="9.5" FontWeight="SemiBold" Foreground="#5C6370" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep3" Text="○" FontSize="9" Foreground="#5C6370" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="BtnStepTab4" Click="StepTab_Click" Tag="4" Background="#21252B" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="4. Voids" FontSize="9.5" FontWeight="SemiBold" Foreground="#5C6370" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep4" Text="○" FontSize="9" Foreground="#5C6370" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="BtnStepTab5" Click="StepTab_Click" Tag="5" Background="#21252B" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="5. Detail" FontSize="9.5" FontWeight="SemiBold" Foreground="#5C6370" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep5" Text="○" FontSize="9" Foreground="#5C6370" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="BtnStepTab6" Click="StepTab_Click" Tag="6" Background="#21252B" Padding="2,4" Margin="1">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="6. Review" FontSize="9.5" FontWeight="SemiBold" Foreground="#5C6370" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="BadgeStep6" Text="○" FontSize="9" Foreground="#5C6370" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-            </UniformGrid>
-        </Border>
-
-        <!-- Row 2: Active Step Content (Scrollable) -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,6">
+        <!-- Row 1: Main Scrollable Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,6">
             <StackPanel>
-                <!-- ============================================== -->
-                <!-- STEP 1: DOCUMENT & SPECS INTAKE -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep1">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Step 1: Document &amp; Dimensional Spec" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,6" />
-                            <TextBlock Text="Design Prompt / Spec Instruction:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,3" />
-                            <TextBox x:Name="TxtDockPrompt" Height="50" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                                     Text="Modern wash basin with half pedestal, 600mm width, 450mm depth, 850mm height, curved under-bowl transition, hollow inner bowl, faucet tap hole, chrome mixer tap, and waste drain." />
+                <!-- 1. Architectural Intake Card -->
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock Text="1. Architectural Specification &amp; Cut-Sheet" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,6" />
 
-                            <TextBlock Text="Manufacturer Cut-Sheet (PDF or Image):" FontSize="11" Foreground="#ABB2BF" Margin="0,8,0,3" />
-                            <Border x:Name="DockDropZone" Height="65" BorderBrush="{StaticResource BorderColor}" BorderThickness="1.5" CornerRadius="4" Background="#1E2227" AllowDrop="True" Drop="DockDropZone_Drop" DragOver="DockDropZone_DragOver">
-                                <Grid>
-                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                        <TextBlock Text="📄 Drag &amp; Drop PDF / Image Here" FontSize="11" Foreground="#ABB2BF" HorizontalAlignment="Center" />
-                                        <Button Content="Browse File..." Margin="0,4,0,0" Padding="8,2" FontSize="10" Click="BtnBrowseFile_Click" Background="#2C313A" />
-                                    </StackPanel>
-                                    <Border x:Name="PdfFileBadge" Background="{StaticResource AccentRed}" CornerRadius="3" Padding="8,3" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
-                                        <TextBlock x:Name="TxtPdfFileName" Text="📄 PDF Attached" Foreground="White" FontWeight="Bold" FontSize="11" />
-                                    </Border>
-                                </Grid>
-                            </Border>
+                        <!-- Archetype Rig Selection -->
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Archetype Rig:" FontSize="11" Foreground="#ABB2BF" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="CmbArchetype" Grid.Column="1" FontSize="11">
+                                <ComboBoxItem Content="Auto-Detect (Cut-Sheet / Prompt)" IsSelected="True" Tag="auto" />
+                                <ComboBoxItem Content="Wall-Hung Pedestal Basin (Tapered Shroud)" Tag="pedestal" />
+                                <ComboBoxItem Content="Countertop Vessel Basin (Revolved Bowl)" Tag="vessel" />
+                                <ComboBoxItem Content="Undermount Vanity Sink (Recessed Dish)" Tag="undermount" />
+                                <ComboBoxItem Content="Commercial ADA Sink (Offset P-Trap)" Tag="ada" />
+                                <ComboBoxItem Content="Double-Bowl Kitchen Sink (Dual Cavity)" Tag="kitchen" />
+                            </ComboBox>
+                        </Grid>
 
-                            <Grid Margin="0,8,0,0">
+                        <!-- Cut-Sheet Drag & Drop Zone -->
+                        <Border x:Name="DockDropZone" Background="{StaticResource CardBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1.5" CornerRadius="4" Padding="8" Margin="0,0,0,6" AllowDrop="True" Drop="DockDropZone_Drop" DragOver="DockDropZone_DragOver">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <ComboBox x:Name="CmbDockPresets" SelectionChanged="CmbDockPresets_SelectionChanged" FontSize="11">
-                                    <ComboBoxItem Content="-- Or Choose Built-In Preset --" IsSelected="True" Tag="" />
-                                    <ComboBoxItem Content="🚰 Modern Wash Basin (Pedestal + Tap)" Tag="basin" />
-                                    <ComboBoxItem Content="🪑 Office Workstation Desk" Tag="workstation" />
-                                    <ComboBoxItem Content="🚪 Commercial Flush Door" Tag="commercial_door" />
-                                    <ComboBoxItem Content="🗄️ Casework Base Cabinet" Tag="casework_cabinet" />
-                                </ComboBox>
-                                <Button x:Name="BtnSynthesizeSpecs" Grid.Column="1" Content="⚡ Extract Specs" Click="BtnSynthesizeSpecs_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Margin="6,0,0,0" Padding="10,4" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Extracted Specs Preview Card -->
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Extracted Dimension &amp; Component Hierarchy:" FontWeight="SemiBold" Foreground="{StaticResource AccentAmber}" Margin="0,0,0,4" />
-                            <TextBlock x:Name="TxtSpecSummary" Text="No specs extracted yet. Click 'Extract Specs' or type prompt above." FontSize="11" TextWrapping="Wrap" Foreground="#ABB2BF" FontFamily="Consolas" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- ============================================== -->
-                <!-- STEP 2: SKELETON & REFERENCE PLANES -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep2" Visibility="Collapsed">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Step 2: Reference Planes &amp; Parameter Constraints" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,6" />
-                            <TextBlock Text="Creates parametric reference skeleton in Revit document and binds driving parameters:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,6" />
-
-                            <ListBox x:Name="ListRefPlanes" Height="100" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="#98C379" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" />
-                            <ListBox x:Name="ListParams" Height="80" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="{StaticResource AccentAmber}" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" />
-
-                            <Button x:Name="BtnExecuteStep2" Content="📐 Generate Skeleton in Revit ▶" Click="BtnExecuteStep2_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" Height="30" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- ============================================== -->
-                <!-- STEP 3: PRIMARY SOLIDS (MASSING & BLENDS) -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep3" Visibility="Collapsed">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Step 3: Primary Solids (Massing &amp; Blends)" FontWeight="SemiBold" Foreground="{StaticResource AccentGreen}" Margin="0,0,0,6" />
-                            <TextBlock Text="Builds the solid bodies in Revit (Rim Deck, Under-bowl Transition, Pedestal):" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,6" />
-
-                            <ListBox x:Name="ListSolids" Height="90" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="#61AFEF" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" />
-
-                            <!-- Mini 2D Preview Canvas for Step 3 -->
-                            <Border Height="110" Background="#14171C" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,6" ClipToBounds="True">
-                                <Canvas x:Name="CanvasStep3Preview" SizeChanged="CanvasStep3Preview_SizeChanged" />
-                            </Border>
-
-                            <Button x:Name="BtnExecuteStep3" Content="🧱 Build Primary Solids in Revit ▶" Click="BtnExecuteStep3_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Height="30" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- ============================================== -->
-                <!-- STEP 4: BOOLEAN VOID CAVITIES & CARVING -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep4" Visibility="Collapsed">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Step 4: Boolean Void Cavities &amp; Carving" FontWeight="SemiBold" Foreground="{StaticResource AccentRed}" Margin="0,0,0,6" />
-                            <TextBlock Text="Generates void extrusions with verified Z-offsets and executes Boolean cuts:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,6" />
-
-                            <ListBox x:Name="ListVoids" Height="90" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="{StaticResource AccentRed}" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" />
-
-                            <!-- Mini 2D Preview showing cuts -->
-                            <Border Height="110" Background="#14171C" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,6" ClipToBounds="True">
-                                <Canvas x:Name="CanvasStep4Preview" SizeChanged="CanvasStep4Preview_SizeChanged" />
-                            </Border>
-
-                            <Button x:Name="BtnExecuteStep4" Content="✂️ Carve Voids &amp; Apply Cuts in Revit ▶" Click="BtnExecuteStep4_Click" Background="{StaticResource AccentRed}" Foreground="White" Height="30" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- ============================================== -->
-                <!-- STEP 5: HIGH-DETAIL FEATURES & CONNECTORS -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep5" Visibility="Collapsed">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <TextBlock Text="Step 5: High-Detail Features &amp; Connectors" FontWeight="SemiBold" Foreground="{StaticResource AccentAmber}" Margin="0,0,0,6" />
-                            <TextBlock Text="Adds Chrome Mixer Tap, Spout Arm, Nozzle, Lever, Strainer &amp; MEP Ports:" FontSize="11" Foreground="#ABB2BF" Margin="0,0,0,6" />
-
-                            <ListBox x:Name="ListDetails" Height="100" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="{StaticResource AccentAmber}" FontFamily="Consolas" FontSize="11" Margin="0,0,0,6" />
-
-                            <Button x:Name="BtnExecuteStep5" Content="✨ Add High-Detail Features in Revit ▶" Click="BtnExecuteStep5_Click" Background="{StaticResource AccentAmber}" Foreground="#1E2227" Height="30" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- ============================================== -->
-                <!-- STEP 6: PDF RESCAN & GEOMETRY REVIEW -->
-                <!-- ============================================== -->
-                <StackPanel x:Name="ViewStep6" Visibility="Collapsed">
-                    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                        <StackPanel>
-                            <Grid Margin="0,0,0,6">
-                                <TextBlock Text="Step 6: AI Rescan &amp; Specification Review" FontWeight="SemiBold" Foreground="{StaticResource AccentGreen}" VerticalAlignment="Center" />
-                                <Button x:Name="BtnRescanPdf" Content="🔄 Rescan Against PDF" Click="BtnRescanPdf_Click" HorizontalAlignment="Right" Background="#2C313A" Foreground="{StaticResource AccentAmber}" Padding="6,2" FontSize="10" />
-                            </Grid>
-
-                            <!-- Overall Match Score Banner -->
-                            <Border x:Name="BannerMatchScore" Background="#1B2B24" BorderBrush="{StaticResource AccentGreen}" BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="✔ Geometry Verified Against PDF Specifications" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="11" />
-                                        <TextBlock x:Name="TxtRescanStatus" Text="All parameters and void cuts align with drawing callouts." FontSize="10" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                                    </StackPanel>
-                                    <TextBlock x:Name="TxtMatchPercent" Grid.Column="1" Text="98%" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="16" FontFamily="Consolas" VerticalAlignment="Center" />
-                                </Grid>
-                            </Border>
-
-                            <!-- Verification Table -->
-                            <TextBlock Text="Dimensional &amp; Boolean Cut Compliance:" FontSize="10" Foreground="#5C6370" Margin="0,0,0,3" />
-                            <DataGrid x:Name="GridVerification" Height="140" AutoGenerateColumns="False" IsReadOnly="True" Background="#1E2227" BorderBrush="{StaticResource BorderColor}" Foreground="#DCDFE4" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#282C34" FontSize="10.5">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Feature" Binding="{Binding Feature}" Width="1.1*" />
-                                    <DataGridTextColumn Header="PDF Spec" Binding="{Binding SpecValue}" Width="*" />
-                                    <DataGridTextColumn Header="Modeled" Binding="{Binding ModeledValue}" Width="*" />
-                                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="Auto" />
-                                </DataGrid.Columns>
-                            </DataGrid>
-
-                            <!-- Observational Review Message -->
-                            <Border Background="#1E2227" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,8">
-                                <StackPanel>
-                                    <TextBlock Text="👁️ Review Instructions:" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" FontSize="11" Margin="0,0,0,3" />
-                                    <TextBlock Text="Review the 3D family in Revit's viewport. If you want adjustments, use the Conversational Refiner below, or click Finish to save." FontSize="10.5" Foreground="#ABB2BF" TextWrapping="Wrap" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="📄 Drag &amp; Drop Cut-Sheet PDF or Image" FontWeight="SemiBold" FontSize="10.5" Foreground="#DCDFE4" />
+                                    <TextBlock Text="Auto-extracts Plan, Elevation &amp; Section specs" FontSize="9.5" Foreground="#5C6370" Margin="0,1,0,0" />
                                 </StackPanel>
-                            </Border>
+                                <Button Grid.Column="1" Content="Browse..." Click="BtnBrowseFile_Click" Background="#3E4451" FontSize="10.5" Padding="8,3" VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
 
-                            <!-- Conversational AI Refinement Toolbar inside Step 6 -->
-                            <Border Background="#21252B" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
-                                <StackPanel>
-                                    <Grid Margin="0,0,0,4">
-                                        <TextBlock Text="💬 Conversational Refinement:" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" FontSize="10.5" />
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                            <Button Content="+25mm Bowl" Click="BtnChip_Click" Tag="make bowl 25mm deeper" Background="#2C313A" Padding="4,1" FontSize="9" Margin="0,0,3,0" />
-                                            <Button Content="Wall-Hung" Click="BtnChip_Click" Tag="convert to wall-hung with no pedestal" Background="#2C313A" Padding="4,1" FontSize="9" Margin="0,0,3,0" />
-                                            <Button Content="+ Overflow" Click="BtnChip_Click" Tag="add circular overflow hole" Background="#2C313A" Padding="4,1" FontSize="9" />
-                                        </StackPanel>
-                                    </Grid>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox x:Name="TxtDockRefinePrompt" Height="28" FontSize="11" Padding="5,2" VerticalContentAlignment="Center"
-                                                 ToolTip="Type refinement: 'make bowl 20mm deeper', 'add overflow hole', 'wall-hung'..." KeyDown="TxtDockRefinePrompt_KeyDown" />
-                                        <Button x:Name="BtnDockRefine" Grid.Column="1" Content="✨ Refine" Click="BtnDockRefine_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" Margin="6,0,0,0" Padding="10,0" Height="28" />
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Final Actions -->
+                        <!-- Attached File Badge -->
+                        <Border x:Name="PdfFileBadge" Background="#2C313A" BorderBrush="{StaticResource AccentTeal}" BorderThickness="1" CornerRadius="3" Padding="6,3" Margin="0,0,0,6" Visibility="Collapsed">
                             <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="6" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button x:Name="BtnSaveFamilyRfa" Grid.Column="0" Content="💾 Save .rfa Family" Click="BtnSaveFamilyRfa_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Height="32" />
-                                <Button x:Name="BtnLoadActiveProject" Grid.Column="2" Content="🚀 Load into Project" Click="BtnLoadActiveProject_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" Height="32" />
+                                <TextBlock x:Name="TxtPdfFileName" Text="📄 CutSheet.pdf" FontSize="10" Foreground="{StaticResource AccentTeal}" VerticalAlignment="Center" />
+                                <Button Content="✕" HorizontalAlignment="Right" Width="16" Height="16" Padding="0" Click="BtnClearFile_Click" Background="Transparent" Foreground="#ABB2BF" />
                             </Grid>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
+                        </Border>
+
+                        <!-- Design Prompt Textbox -->
+                        <TextBlock Text="Design Prompt / Parametric Constraints:" FontSize="10.5" Foreground="#ABB2BF" Margin="0,0,0,3" />
+                        <TextBox x:Name="TxtDockPrompt" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                 Text="Modern wash basin with half pedestal, 600mm width, 450mm depth, 850mm height, curved under-bowl transition, hollow inner bowl, faucet tap hole, chrome mixer tap, and waste drain." />
+
+                        <!-- Big Primary Execution Button -->
+                        <Button x:Name="BtnGenerateFamily" Click="BtnGenerateFamily_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" FontSize="12" FontWeight="Bold" Margin="0,8,0,0" Padding="12,8">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="⚡ Generate High-LOD Parametric Family" FontSize="12" FontWeight="Bold" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2. Live Geometry Pipeline Stepper Card -->
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,6">
+                            <TextBlock Text="2. Procedural Geometry Pipeline" FontWeight="SemiBold" Foreground="{StaticResource AccentGreen}" />
+                            <TextBlock x:Name="TxtPipelineStatus" Text="Ready" FontSize="10" Foreground="{StaticResource AccentGreen}" HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <!-- Stepper Progress Bar -->
+                        <ProgressBar x:Name="DockProgBar" Height="5" Margin="0,0,0,8" IsIndeterminate="False" Value="0" Maximum="100" Foreground="{StaticResource AccentGreen}" Background="#282C34" />
+
+                        <!-- 6 Pipeline Stages -->
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Stage 1 -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" x:Name="IconStage1" Text="○" Foreground="#5C6370" FontWeight="Bold" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="1. Specs &amp; Multi-View Orthographic Extraction" FontSize="10.5" Foreground="#ABB2BF" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" x:Name="StatusStage1" Text="Pending" FontSize="10" Foreground="#5C6370" />
+
+                            <!-- Stage 2 -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" x:Name="IconStage2" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="2. Reference Planes &amp; Parametric Constraints" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="1" Grid.Column="2" x:Name="StatusStage2" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+
+                            <!-- Stage 3 -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" x:Name="IconStage3" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="3. Primary Solids (Rim Deck, Pedestal &amp; Blends)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="StatusStage3" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+
+                            <!-- Stage 4 -->
+                            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="IconStage4" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="4. Boolean Cavities (Revolve Bowl Dish &amp; Voids)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="3" Grid.Column="2" x:Name="StatusStage4" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+
+                            <!-- Stage 5 -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" x:Name="IconStage5" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="5. High Detail (Mixer Tap, Sweeps &amp; MEP Connectors)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="4" Grid.Column="2" x:Name="StatusStage5" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+
+                            <!-- Stage 6 -->
+                            <TextBlock Grid.Row="5" Grid.Column="0" x:Name="IconStage6" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="6. Parametric Flex Rig &amp; PDF Rescan Audit" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
+                            <TextBlock Grid.Row="5" Grid.Column="2" x:Name="StatusStage6" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 3. Revit Viewport Actions & Family Operations -->
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock Text="3. Revit Viewport &amp; Project Operations" FontWeight="SemiBold" Foreground="{StaticResource AccentTeal}" Margin="0,0,0,6" />
+                        <UniformGrid Columns="2" Margin="0,0,0,6">
+                            <Button x:Name="BtnViewIn3D" Content="👁 View in 3D Editor" Click="BtnViewIn3D_Click" Background="#2C313A" Foreground="{StaticResource AccentTeal}" Margin="0,0,3,0" Padding="6,6" ToolTip="Opens and activates the 3D family document in Revit" />
+                            <Button x:Name="BtnFlexTest" Content="⚡ Flex Test Types" Click="BtnFlexTest_Click" Background="#2C313A" Foreground="{StaticResource AccentAmber}" Margin="3,0,0,0" Padding="6,6" ToolTip="Stress-tests parametric formulas across all catalog types" />
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <Button x:Name="BtnSaveFamilyRfa" Content="💾 Save .rfa File" Click="BtnSaveFamilyRfa_Click" Background="#2C313A" Margin="0,0,3,0" Padding="6,6" />
+                            <Button x:Name="BtnLoadActiveProject" Content="📥 Load into Project" Click="BtnLoadActiveProject_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Margin="3,0,0,0" Padding="6,6" />
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 4. Spec Rescan & Verification Audit -->
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,6">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="4. PDF Spec Verification Audit" FontWeight="SemiBold" Foreground="{StaticResource AccentAmber}" />
+                                <Border Background="#2C313A" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
+                                    <TextBlock x:Name="TxtMatchPercent" Text="95%" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="10" />
+                                </Border>
+                            </StackPanel>
+                            <Button Content="🔄 Rescan" Click="BtnRescanPdf_Click" Background="#2C313A" FontSize="9.5" Padding="6,1" HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <TextBlock x:Name="TxtRescanStatus" Text="Automated dimensional cross-check against manufacturer specifications." FontSize="10" Foreground="#ABB2BF" Margin="0,0,0,6" TextWrapping="Wrap" />
+
+                        <!-- Verification DataGrid -->
+                        <DataGrid x:Name="GridVerification" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="130" Background="#1E2227" RowBackground="#282C34" AlternatingRowBackground="#21252B" BorderBrush="{StaticResource BorderColor}" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3E4451" FontSize="10">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Feature" Binding="{Binding Feature}" Width="*" />
+                                <DataGridTextColumn Header="Cut-Sheet Spec" Binding="{Binding SpecValue}" Width="90" />
+                                <DataGridTextColumn Header="Modeled" Binding="{Binding ModeledValue}" Width="85" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="55" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 5. Conversational Refinement Bar -->
+                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock Text="5. Conversational Geometry Refiner" FontWeight="SemiBold" Foreground="{StaticResource AccentPurple}" Margin="0,0,0,4" />
+                        <TextBlock Text="Request parametric modifications without re-prompting from scratch:" FontSize="9.5" Foreground="#5C6370" Margin="0,0,0,6" />
+
+                        <!-- Quick Refine Chips -->
+                        <WrapPanel Margin="0,0,0,6">
+                            <Button Content="+25mm Bowl Depth" Tag="Make the inner bowl 25mm deeper" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
+                            <Button Content="Add Overflow Hole" Tag="Add overflow hole cutout to basin" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
+                            <Button Content="Wall-Hung Pedestal" Tag="Change pedestal to wall-hung half shroud" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
+                            <Button Content="Tall Gooseneck Tap" Tag="Change mixer tap to tall gooseneck spout" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
+                            <Button Content="Scale Width 800mm" Tag="Scale overall width to 800mm" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
+                        </WrapPanel>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TxtDockRefinePrompt" Height="26" FontSize="11" Margin="0,0,4,0" KeyDown="TxtDockRefinePrompt_KeyDown" />
+                            <Button x:Name="BtnDockRefine" Grid.Column="1" Content="Refine ⚡" Click="BtnDockRefine_Click" Background="{StaticResource AccentPurple}" Foreground="#1E2227" FontSize="10.5" Padding="8,3" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Row 3: Step Action & Global Navigation Buttons -->
-        <Border Grid.Row="3" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,0,6">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <Button x:Name="BtnPrevStep" Grid.Column="0" Content="◀ Prev Step" Click="BtnPrevStep_Click" Background="#2C313A" IsEnabled="False" Padding="8,4" FontSize="11" />
-
-                <!-- Step Title Summary in Center -->
-                <TextBlock x:Name="TxtCurrentStepLabel" Grid.Column="1" Text="Step 1 of 6: Specs Intake" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" />
-
-                <Button x:Name="BtnNextStep" Grid.Column="2" Content="Next Step ▶" Click="BtnNextStep_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" Padding="10,4" FontSize="11" Margin="0,0,6,0" />
-                <Button x:Name="BtnRunAllSteps" Grid.Column="3" Content="⚡ Run All Steps" Click="BtnRunAllSteps_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Padding="10,4" FontSize="11" />
-            </Grid>
-        </Border>
-
-        <!-- Row 4: Execution Log & Verification Status -->
-        <Border Grid.Row="4" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="6">
+        <!-- Row 2: Live Engine Console Log -->
+        <Border Grid.Row="2" Background="#14171C" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-
-                <Grid Grid.Row="0" Margin="0,0,0,3">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Revit Engine Execution &amp; Void Cut Log:" FontSize="10.5" Foreground="#5C6370" VerticalAlignment="Center" />
-                    <Button Content="Clear" Click="BtnClearDockLogs_Click" Grid.Column="1" Background="Transparent" Foreground="#5C6370" FontSize="9.5" Padding="4,0" />
+                <Grid Margin="0,0,0,4">
+                    <TextBlock Text="⚡ Live Engine Console" FontSize="10" FontWeight="Bold" Foreground="#5C6370" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Clear" Click="BtnClearLog_Click" Background="Transparent" Foreground="#5C6370" FontSize="9" Padding="4,0" />
+                    </StackPanel>
                 </Grid>
-
-                <TextBox x:Name="TxtDockLogs" Grid.Row="1" IsReadOnly="True" Background="#1E2227" BorderThickness="0" Foreground="#ABB2BF" FontFamily="Consolas" FontSize="10" VerticalScrollBarVisibility="Auto" />
-                <ProgressBar x:Name="DockProgBar" Grid.Row="2" Height="4" IsIndeterminate="True" Visibility="Collapsed" Foreground="{StaticResource AccentGreen}" Margin="0,3,0,0" />
+                <ScrollViewer Grid.Row="1" x:Name="ScrollLog" VerticalScrollBarVisibility="Auto">
+                    <TextBox x:Name="TxtDockLog" Background="Transparent" Foreground="#98C379" BorderThickness="0" FontFamily="Consolas" FontSize="9.5" IsReadOnly="True" TextWrapping="Wrap" />
+                </ScrollViewer>
             </Grid>
         </Border>
     </Grid>

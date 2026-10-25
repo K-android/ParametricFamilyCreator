@@ -54,6 +54,12 @@ namespace ParametricFamilyForge.Models
         public List<BlendDef> HostBlends { get; set; } = new();
 
         /// <summary>
+        /// Host Revolutions rotating a 2D profile around a central axis (round bowls, dished basin cavities, bottle traps, circular columns).
+        /// </summary>
+        [JsonPropertyName("host_revolves")]
+        public List<RevolveDef> HostRevolves { get; set; } = new();
+
+        /// <summary>
         /// Host Sweeps extruding a profile along a 3D path (curved spouts, grab bars, moldings, trims).
         /// </summary>
         [JsonPropertyName("host_sweeps")]
@@ -307,6 +313,58 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("top_offset_mm")]
         public double TopOffset_mm { get; set; } = 100.0;
+
+        [JsonPropertyName("subcategory")]
+        public string? Subcategory { get; set; }
+
+        [JsonPropertyName("material_parameter")]
+        public string? MaterialParameter { get; set; }
+
+        [JsonPropertyName("visibility_parameter")]
+        public string? VisibilityParameter { get; set; }
+    }
+
+    /// <summary>
+    /// Defines a 3D revolution rotating a 2D profile around a central axis line.
+    /// Ideal for organic bowls, dished basin cavity voids, circular pedestals, bottle traps, and round waste flanges.
+    /// </summary>
+    public class RevolveDef
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "SolidRevolve";
+
+        [JsonPropertyName("is_void")]
+        public bool IsVoid { get; set; } = false;
+
+        /// <summary>
+        /// "BowlDish", "Cylinder", "Cone", "HalfSphere", or "Custom"
+        /// </summary>
+        [JsonPropertyName("revolve_type")]
+        public string RevolveType { get; set; } = "BowlDish";
+
+        [JsonPropertyName("axis_x_mm")]
+        public double AxisX_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("axis_y_mm")]
+        public double AxisY_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("start_z_mm")]
+        public double StartZ_mm { get; set; } = 700.0;
+
+        [JsonPropertyName("end_z_mm")]
+        public double EndZ_mm { get; set; } = 850.0;
+
+        [JsonPropertyName("radius_mm")]
+        public double Radius_mm { get; set; } = 200.0;
+
+        [JsonPropertyName("inner_radius_mm")]
+        public double InnerRadius_mm { get; set; } = 0.0;
+
+        [JsonPropertyName("start_angle_deg")]
+        public double StartAngleDeg { get; set; } = 0.0;
+
+        [JsonPropertyName("end_angle_deg")]
+        public double EndAngleDeg { get; set; } = 360.0;
 
         [JsonPropertyName("subcategory")]
         public string? Subcategory { get; set; }

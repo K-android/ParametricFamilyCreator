@@ -92,7 +92,7 @@ To remove the add-in at any time, run **`Uninstall.bat`**.
 
 In the top bar of the **AI Family Forge** dockable panel:
 * **API Key**: Enter your Google Gemini API key (stored securely in `%APPDATA%`).
-* **Model Selection**: Switch between `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.1-flash-lite`, or **Offline AEC Rules** (100% functional without an internet connection or API key).
+* **Model Selection**: Switch between `gemini-2.5-flash` (Ultra Fast default), `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-2.5-pro`, or **Offline AEC Rules** (100% functional without an internet connection or API key).
 * **BIM Category / Rig**: Select an explicit archetype or leave on **Auto-Detect from Cut-Sheet**.
 
 ---

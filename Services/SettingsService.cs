@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using ParametricFamilyForge.Models;
@@ -41,7 +41,7 @@ namespace ParametricFamilyForge.Services
                             settings.ModelEngine.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase) ||
                             settings.ModelEngine.StartsWith("gemini-4", StringComparison.OrdinalIgnoreCase))
                         {
-                            settings.ModelEngine = "gemini-2.5-flash";
+                            settings.ModelEngine = "gemini-3.8-flash";
                         }
                         return settings;
                     }

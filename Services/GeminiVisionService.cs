@@ -21,7 +21,7 @@ namespace ParametricFamilyForge.Services
     public class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
-        public const string DefaultGeminiModel = "gemini-2.5-flash";
+        public const string DefaultGeminiModel = "gemini-3.8-flash";
 
         /// <summary>
         /// Real-time token consumption metrics from the last Gemini API call.
@@ -760,8 +760,6 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             int paren = m.IndexOf(' ');
             if (paren > 0) m = m.Substring(0, paren);
             if (m.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) m = m.Substring(7);
-            if (m.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase) || m.StartsWith("gemini-4", StringComparison.OrdinalIgnoreCase))
-                m = DefaultGeminiModel;
             return m;
         }
 
@@ -822,11 +820,12 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
         private static readonly string[] SupportedGeminiModels =
         {
+            "gemini-4-argon",
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-2.5-pro",
-            "gemini-1.5-pro"
+            "gemini-2.5-pro"
         };
 
         private static bool IsUnsuitableModel(string name)

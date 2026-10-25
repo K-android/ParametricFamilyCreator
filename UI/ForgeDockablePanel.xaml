@@ -66,10 +66,12 @@
 
                 <!-- Model Engine & Settings Button -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <ComboBox x:Name="CmbDockModel" Width="145" FontSize="11" Margin="0,0,6,0">
-                        <ComboBoxItem Content="gemini-2.5-flash (Ultra Fast)" IsSelected="True" Tag="gemini-2.5-flash" />
-                        <ComboBoxItem Content="gemini-2.0-flash" Tag="gemini-2.0-flash" />
-                        <ComboBoxItem Content="gemini-1.5-flash" Tag="gemini-1.5-flash" />
+                    <ComboBox x:Name="CmbDockModel" Width="165" FontSize="11" Margin="0,0,6,0">
+                        <ComboBoxItem Content="gemini-4-argon (Frontier AI)" Tag="gemini-4-argon" />
+                        <ComboBoxItem Content="gemini-3.8-flash (Recommended)" IsSelected="True" Tag="gemini-3.8-flash" />
+                        <ComboBoxItem Content="gemini-3.6-flash" Tag="gemini-3.6-flash" />
+                        <ComboBoxItem Content="gemini-3.5-flash-lite" Tag="gemini-3.5-flash-lite" />
+                        <ComboBoxItem Content="gemini-2.5-flash (Ultra Fast)" Tag="gemini-2.5-flash" />
                         <ComboBoxItem Content="gemini-2.5-pro" Tag="gemini-2.5-pro" />
                         <ComboBoxItem Content="Offline AEC Rules" Tag="offline" />
                     </ComboBox>

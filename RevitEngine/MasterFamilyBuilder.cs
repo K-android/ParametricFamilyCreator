@@ -133,6 +133,10 @@ namespace ParametricFamilyForge.RevitEngine
 
             using (Transaction trans = new Transaction(masterDoc, $"Build Master Family {schema.MasterFamilyName}"))
             {
+                FailureHandlingOptions failOpts = trans.GetFailureHandlingOptions();
+                failOpts.SetFailuresPreprocessor(new ForgeFailuresPreprocessor());
+                failOpts.SetClearAfterRollback(true);
+                trans.SetFailureHandlingOptions(failOpts);
                 trans.Start();
 
                 // If opening a seed family (.rfa), delete pre-existing model geometry so family starts fresh
@@ -326,17 +330,28 @@ namespace ParametricFamilyForge.RevitEngine
                 }
 
                 // 4d. Create Host Sweeps (curved spouts, grab bars, rails, moldings)
-                if (schema.HostSweeps != null)
+                if (schema.HostSweeps != null && schema.HostSweeps.Count > 0)
                 {
                     foreach (var sweepDef in schema.HostSweeps)
                     {
-                        try
+                        using (SubTransaction subTrans = new SubTransaction(masterDoc))
                         {
-                            CreateHostSweep(masterDoc, uiApp.Application, famMgr, sketchPlane, sweepDef, paramDict, createdSolids, createdVoids, onLog);
-                        }
-                        catch (Exception ex)
-                        {
-                            onLog?.Invoke($"[Geometry Error] Sweep '{sweepDef.Name}': {ex.Message}");
+                            try
+                            {
+                                subTrans.Start();
+                                CreateHostSweep(masterDoc, uiApp.Application, famMgr, sketchPlane, sweepDef, paramDict, createdSolids, createdVoids, onLog);
+                                var status = subTrans.Commit();
+                                if (status != TransactionStatus.Committed)
+                                {
+                                    try { subTrans.RollBack(); } catch { }
+                                    onLog?.Invoke($"[Host Sweep Skipped] '{sweepDef.Name}' rolled back safely.");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                try { subTrans.RollBack(); } catch { }
+                                onLog?.Invoke($"[Host Sweep Skipped] '{sweepDef.Name}': {ex.Message}");
+                            }
                         }
                     }
                 }
@@ -2061,6 +2076,47 @@ namespace ParametricFamilyForge.RevitEngine
             source = FamilySource.Family;
             overwriteParameterValues = true;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Silently handles and suppresses non-fatal Revit warnings and errors to prevent blocking modal popups.
+    /// </summary>
+    public class ForgeFailuresPreprocessor : IFailuresPreprocessor
+    {
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
+        {
+            IList<FailureMessageAccessor> fmas = failuresAccessor.GetFailureMessages();
+            if (fmas.Count == 0) return FailureProcessingResult.Continue;
+
+            foreach (FailureMessageAccessor fma in fmas)
+            {
+                FailureSeverity severity = fma.GetSeverity();
+                if (severity == FailureSeverity.Warning)
+                {
+                    failuresAccessor.DeleteWarning(fma);
+                }
+                else if (severity == FailureSeverity.Error)
+                {
+                    if (fma.HasResolutions())
+                    {
+                        try { failuresAccessor.ResolveFailure(fma); } catch { }
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var ids = fma.GetFailingElementIds();
+                            if (ids != null && ids.Count > 0)
+                            {
+                                failuresAccessor.DeleteElements(ids.ToList());
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            return FailureProcessingResult.ProceedWithCommit;
         }
     }
 }

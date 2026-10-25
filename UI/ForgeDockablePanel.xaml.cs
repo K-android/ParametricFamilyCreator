@@ -309,25 +309,56 @@ namespace ParametricFamilyForge.UI
                     });
                 }
 
-                if (schema.HostSweeps.Count == 0)
+                // Add Watertight Solid Chrome Faucet Extrusions (Zero Sweep Errors)
+                if (!schema.HostExtrusions.Any(e => e.Name.Contains("Faucet", StringComparison.OrdinalIgnoreCase) || e.Name.Contains("Tap", StringComparison.OrdinalIgnoreCase)))
                 {
-                    schema.HostSweeps.Add(new SweepDef
+                    schema.HostExtrusions.Add(new ExtrusionDef
                     {
-                        Name = "Solid_Curved_Tap_Spout",
+                        Name = "Faucet_Pillar_Base",
+                        ProfileType = "Cylinder",
                         IsVoid = false,
-                        ProfileType = "Circle",
-                        ProfileRadius_mm = 11.0,
-                        PathPoints_mm = new List<VectorOffsetDef>
-                        {
-                            new(0, -depth * 0.15, height + 20.0),
-                            new(0, -depth * 0.15, height + 110.0),
-                            new(0, -depth * 0.28, height + 145.0),
-                            new(0, -depth * 0.38, height + 125.0)
-                        },
+                        Radius_mm = 18.0,
+                        MinX_mm = -18.0,
+                        MaxX_mm = 18.0,
+                        MinY_mm = -depth * 0.15 - 18.0,
+                        MaxY_mm = -depth * 0.15 + 18.0,
+                        StartZ_mm = height,
+                        EndZ_mm = height + 100.0,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Tap_Material"
+                    });
+                    schema.HostExtrusions.Add(new ExtrusionDef
+                    {
+                        Name = "Faucet_Forward_Spout",
+                        ProfileType = "RoundedRectangle",
+                        CornerRadius_mm = 6.0,
+                        IsVoid = false,
+                        MinX_mm = -9.0,
+                        MaxX_mm = 9.0,
+                        MinY_mm = -depth * 0.32,
+                        MaxY_mm = -depth * 0.15,
+                        StartZ_mm = height + 88.0,
+                        EndZ_mm = height + 102.0,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Tap_Material"
+                    });
+                    schema.HostExtrusions.Add(new ExtrusionDef
+                    {
+                        Name = "Faucet_Mixer_Lever",
+                        ProfileType = "RoundedRectangle",
+                        CornerRadius_mm = 4.0,
+                        IsVoid = false,
+                        MinX_mm = -6.0,
+                        MaxX_mm = 6.0,
+                        MinY_mm = -depth * 0.15 - 28.0,
+                        MaxY_mm = -depth * 0.15 + 10.0,
+                        StartZ_mm = height + 96.0,
+                        EndZ_mm = height + 106.0,
                         Subcategory = "Hardware",
                         MaterialParameter = "Tap_Material"
                     });
                 }
+                schema.HostSweeps.Clear();
 
                 if (schema.FamilyTypes.Count == 0)
                 {

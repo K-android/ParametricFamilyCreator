@@ -1,66 +1,92 @@
 # ParametricFamilyForge
 
-**ParametricFamilyForge** is a production-ready Autodesk Revit (2024, 2025 & 2026) add-in powered by Google Gemini Vision API and an AEC procedural rule engine. It translates natural language prompts, cut-sheet sketch images, and built-in architectural presets into complete, parametric Revit Families (`.rfa`) with nested sub-components, multi-type catalogs, material associations, and linked parametric constraints.
+**ParametricFamilyForge** is a production-grade Autodesk Revit (2024, 2025 & 2026) add-in powered by Google Gemini Vision and a deterministic AEC procedural rule engine. It transforms manufacturer cut-sheet PDFs, orthographic architectural drawings, and natural language prompts into high-LOD, production-ready parametric Revit Families (`.rfa`) with organic 3D curvature, boolean void carvings, nested sub-components, multi-type catalogs, and engineering MEP connectors.
 
 ---
 
-## Key Features
+## What Sets It Apart
 
-- **Generative AI Vision & Prompting**: Supports `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.1-flash-lite`, and multimodal visual reasoning with Structured JSON Outputs.
-- **Architectural Preset Library**: Quick one-click generation of production-ready components:
-  - 🪑 **Ergonomic Office Workstation** (Desktop slab, modesty panel, 4 nested steel tubular legs, 4 footprint sizes)
-  - 🚪 **Commercial Flush Door** (Jamb frame, leaf slab, vision lite glazing, nested lever hardware, 3 ADA/standard sizes)
-  - 🗄️ **Casework Base Cabinet** (Carcass box, toe kick, solid surface countertop, nested hardware pull)
-  - 🏛️ **Architectural Column** (Stepped plinth base, cylindrical shaft, abacus capital, 3 height/diameter variants)
-  - 👥 **Executive Conference Table** (Beveled top slab, dual pedestals, wire raceway, 3 executive size types)
-- **Multi-Type Catalog Generation (`family_types`)**:
-  - Automatically synthesizes all defined family types (`FamilyType`) in the Revit Family Manager with dimensional overrides.
-  - Export standard Revit Type Catalog schedules (`.txt` / `.csv`) for automatic type selection prompts in project environments.
-- **Expanded Revit API Spec & Group Engine**:
-  - Full support for `Length`, `Angle`, `Area`, `Volume`, `Integer`, `Number`, `Boolean.YesNo`, `String.Text`, `String.Url`, and `Reference.Material`.
-  - Automatic `GroupTypeId` assignment (`Geometry`, `Materials`, `Visibility`, `IdentityData`, `Data`, `Constraints`).
-  - Direct parameter association to Extrusion Material (`BuiltInParameter.MATERIAL_ID_PARAM`) and Extrusion Visibility (`BuiltInParameter.IS_VISIBLE_PARAM`).
-- **Interactive 2D Geometry Preview (Plan & Elevation)**:
-  - Real-time CAD-style WPF Canvas rendering of Plan View (top-down X-Y) and Front Elevation View (X-Z).
-  - Dynamic scaling, extrusion color-coding (Host vs Nested Components), reference centerlines, and ground reference level.
-  - Labeled dimension lines with tick marks for overall Width, Depth, and Height.
-  - View layout switcher: Side-by-Side (Plan | Elevation), Plan View Only, and Elevation Only.
-  - Automatically updates whenever presets are chosen, files imported, or schemas edited.
-- **Autodesk Revit Shared Parameter File Exporter**:
-  - Exports official Revit Shared Parameter definition files (`.txt`) with deterministic MD5 GUIDs.
-  - Strict compliance with Autodesk Revit Shared Parameter syntax (`*META`, `*GROUP`, `*PARAM`).
-  - Seamlessly maps schema parameter types to standard Revit types (`LENGTH`, `ANGLE`, `AREA`, `VOLUME`, `NUMBER`, `INTEGER`, `YESNO`, `MATERIAL`, `TEXT`, `URL`).
-- **Live Schema Validation & Diagnostic Pre-Check**:
-  - Static analysis engine verifies bounding boxes, coordinates, formula parenthesis balance, and parameter mappings before raising Revit API execution.
-  - Interactive validation banner with color-coded status badges and detailed diagnostics.
-- **JSON Schema Export & Import**:
-  - Save custom synthesized schemas to disk and import previously exported family specifications.
-- **Multi-Version Revit API Architecture**:
-  - Full compatibility with **Revit 2024 (.NET Framework 4.8)**, **Revit 2025 (.NET 8.0)**, and **Revit 2026 (.NET 8.0)**.
-  - Multi-targeted SDK (`net8.0-windows` & `net48`).
-  - Utilizes modern `ForgeTypeId`, `SpecTypeId`, `GroupTypeId`, and `UnitTypeId.Millimeters` (zero deprecated enums).
-- **Background Multi-Document Pipeline**:
-  - Dynamically synthesizes sub-components in memory using `NewFamilyDocument()`.
-  - Strictly follows the Revit API **`Regenerate()` Rule** after reference plane creation to prevent alignment failure exceptions.
-  - Automatically loads nested `.rfa`s into the Master Family and links parameters via `famMgr.AssociateElementParameterToFamilyParameter()`.
-  - Automatically loads the resulting Master Family directly into your open project using custom `IFamilyLoadOptions`.
+Unlike basic AI add-ins that generate blocky, faceted approximations or crash when flexing dimensions, **ParametricFamilyForge** operates on a multi-stage engineering pipeline:
+
+* **Native Revit Dockable Panel (`IDockablePaneProvider`)**: Sits right inside your Revit workspace as a native dockable pane with single-click end-to-end procedural execution.
+* **Organic 3D Curvature (Revolves & 3D Sweeps)**:
+  * Uses native Revit `NewRevolution` to carve smooth $360^\circ$ dished bowl cavities, spherical contours, and axisymmetric cylinders.
+  * Uses native `NewSweep` to extrude circular profiles along 3D spatial guide curves for mixer taps, spouts, and bottle traps.
+* **Natively Hollow Concentric Sketch Profiles**:
+  * Bakes outer perimeter and inner cavity loops directly into the extrusion sketch (`HollowDShape`), guaranteeing that basin bowls and sinks are hollowed out at birth—eliminating flat solid lids.
+* **Monolithic Volumetric Modeling (Zero Air Gaps)**:
+  * Generates unified full-depth ceramic bodies (e.g. $178\text{ mm}$ wall height), solid dish floors, and overlapping half-pedestal shrouds that eliminate floating geometry or gaps.
+* **Live 3D Viewport Sync & Focus**:
+  * Upon generation, the add-in automatically opens the family in Revit's 3D Family Editor (`uiApp.OpenAndActivateDocument`), switches to the 3D isometric view, and frames the camera on the geometry.
+* **Automated Multi-Type Parametric Flex-Test Rig**:
+  * Built-in flex test engine iterates through all defined catalog types (e.g. *Standard*, *Compact*, *Executive*), flexing dimensional parameters in `FamilyManager` and validating constraint satisfaction within sub-transactions.
+* **Closed-Loop PDF Cut-Sheet Rescan Audit**:
+  * Rescans the modeled 3D geometry against the original cut-sheet PDF and generates a side-by-side dimensional verification table with an overall compliance match score.
+* **Conversational Geometry Refiner**:
+  * Allows one-click refinement chips (*"+25mm Bowl Depth"*, *"Add Overflow Hole"*, *"Wall-Hung Pedestal"*, *"Scale Width 800mm"*) or conversational prompt adjustments without regenerating from scratch.
 
 ---
 
-## One-Click Installation
+## Supported BIM Categories
 
-To install on your company workstation without requiring administrative rights or Visual Studio:
+| Category | Reconstructed Features from PDF | Native Revit Primitives |
+| :--- | :--- | :--- |
+| **Plumbing Fixtures** | Wash basins, pedestal sinks, vessel bowls, bathtubs, faucets, overflow holes, waste traps | `HostRevolves`, `HostExtrusions`, `HostSweeps`, `HostBlends`, MEP Connectors |
+| **Doors & Openings** | Jamb frame, panel leaf, vision lite glazing void cutouts, nested hardware, 2D plan swings | `HostExtrusions`, `HostOpenings`, `SymbolicCurves`, `NestedFamilies` |
+| **Windows** | Outer frame, operable sash, double glazing infill, sill projection, wall opening cuts | `HostExtrusions`, `HostOpenings`, `HostBlends` |
+| **Furniture & FF&E** | Office desks, ergonomic task chairs, conference tables, cable grommet void cutouts | `HostExtrusions`, `HostSweeps`, `HostBlends`, Parameters |
+| **Casework & Millwork** | Base cabinets, cupboards, solid surface countertops, adjustable shelving, hardware pulls | `HostExtrusions`, `NestedFamilies`, Subcategories |
+| **Mechanical & MEP** | Water pumps, air chillers, fans, valves, air terminals, system attachments | `HostExtrusions`, `HostRevolves`, `MepConnectors` (Pipe, Duct, Electrical) |
+| **Structural & Joints** | Column baseplates, anchor bolt hole voids, stiffener gusset plates, column stubs | `HostExtrusions`, Boolean Void Cuts, Constraints |
+| **Specialty Equipment** | Entrance canopies, handrails, grab bars, escalators, architectural screens | `HostSweeps`, `HostExtrusions`, `HostBlends` |
 
-1. Clone or download this repository.
-2. Double-click **`Install.bat`** (or right-click `Installer\Install-ParametricFamilyForge.ps1` and select **Run with PowerShell**).
-3. The installer will:
-   - Detect installed Revit 2024/2025/2026 instances.
-   - Stage assemblies into `%APPDATA%\Autodesk\Revit\Addins\<Year>\ParametricFamilyForge\`.
-   - Configure the `.addin` manifest.
-   - Initialize default settings in `%APPDATA%`.
-4. Open Autodesk Revit, navigate to the **"AI Family Forge"** ribbon tab, and click **"Parametric Family Forge"**.
+---
 
-To uninstall at any time, run **`Uninstall.bat`**.
+## 6-Stage Procedural Geometry Pipeline
+
+When you click **"⚡ Generate High-LOD Parametric Family"**, the engine executes:
+
+```
+[1] Specs Intake & Orthographic Analysis (Plan X-Y, Elevation X-Z, Section Y-Z)
+                       │
+                       ▼
+[2] Skeleton & Parametric Constraints (Reference Planes, Width/Depth/Height params)
+                       │
+                       ▼
+[3] Primary Solids (Rim Deck, Pedestal Shroud, Revolve Solids)
+                       │
+                       ▼
+[4] Boolean Cavity Carving (Dished Bowl Revolve, Drain Hole, Overflow Cutout)
+                       │
+                       ▼
+[5] High Detail & MEP (Chrome Mixer Tap, 3D Gooseneck Spout, Pipe Connectors)
+                       │
+                       ▼
+[6] Parametric Flex Rig & PDF Rescan Audit (Constraint verification & compliance table)
+```
+
+---
+
+## Installation
+
+### Method A: One-Click Executable Installer (`Setup.exe`)
+1. Download or clone this repository.
+2. Double-click **`Setup.exe`**.
+3. The installer automatically detects all installed Revit instances (2024, 2025, 2026), deploys the appropriate binaries, registers the `.addin` manifest, and creates desktop shortcuts.
+
+### Method B: Batch / PowerShell Installer
+* Run **`Install.bat`** (or right-click `Installer\Install-ParametricFamilyForge.ps1` and select **Run with PowerShell**).
+
+To remove the add-in at any time, run **`Uninstall.bat`**.
+
+---
+
+## Configuration
+
+In the top bar of the **AI Family Forge** dockable panel:
+* **API Key**: Enter your Google Gemini API key (stored securely in `%APPDATA%`).
+* **Model Selection**: Switch between `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.1-flash-lite`, or **Offline AEC Rules** (100% functional without an internet connection or API key).
+* **BIM Category / Rig**: Select an explicit archetype or leave on **Auto-Detect from Cut-Sheet**.
 
 ---
 
@@ -69,48 +95,52 @@ To uninstall at any time, run **`Uninstall.bat`**.
 ```
 ParametricFamilyForge/
 │
-├── App.cs                                  # IExternalApplication: Ribbon Tab & PushButton setup
+├── App.cs                                  # IExternalApplication: Ribbon Tab & Dockable Pane registration
 ├── ParametricFamilyForge.addin             # Revit add-in manifest
-├── ParametricFamilyForge.csproj            # Multi-targeted .NET 8.0 / .NET 4.8 SDK project
-├── Install.bat                             # One-click Windows batch installer
+├── ParametricFamilyForge.csproj            # Dual-targeted SDK project (net8.0-windows & net48)
+├── Setup.exe                               # Standalone Windows GUI installer executable
+├── Install.bat                             # One-click batch installation script
 ├── Uninstall.bat                           # Clean uninstaller script
 │
 ├── Commands/
-│   └── LaunchForgeCommand.cs               # IExternalCommand: Launches modeless WPF window
+│   └── LaunchForgeCommand.cs               # Toggles the native Revit Dockable Panel
 │
 ├── Models/
-│   ├── FamilySchema.cs                     # Strongly typed JSON bridge & Type Catalog schema
-│   └── ForgeSettings.cs                    # Persistent configuration settings
+│   ├── FamilySchema.cs                     # Root procedural schema (Extrusions, Blends, Revolves, Sweeps)
+│   ├── ForgeSettings.cs                    # Configuration settings data model
+│   └── PdfRescanReport.cs                  # Spec verification & dimensional compliance report models
 │
 ├── Services/
-│   ├── GeminiVisionService.cs              # Gemini Vision API client + deterministic fallback
-│   ├── PresetService.cs                    # Built-in presets, JSON export/import, CSV catalog
-│   ├── SchemaValidator.cs                  # Static analysis & pre-generation diagnostic check
-│   ├── SettingsService.cs                  # %APPDATA% JSON config persistence
+│   ├── GeminiVisionService.cs              # Vision API, orthographic parsing, rescan audit & offline heuristics
+│   ├── PresetService.cs                    # Architectural presets & type catalog export
+│   ├── SchemaValidator.cs                  # Pre-generation geometric sanity & diagnostic checks
+│   ├── SettingsService.cs                  # Configuration persistence
 │   └── SharedParameterService.cs          # Revit Shared Parameter file exporter (.txt)
 │
 ├── RevitEngine/
-│   ├── FamilyGenerationHandler.cs          # IExternalEventHandler thread bridge
+│   ├── FamilyGenerationHandler.cs          # Modeless thread-safe IExternalEventHandler bridge & viewport sync
+│   ├── MasterFamilyBuilder.cs              # Core builder (Extrusions, Blends, Revolves, Sweeps, Boolean cuts, Flex Rig)
 │   ├── NestedFamilyBuilder.cs              # Sub-component family compiler
-│   ├── MasterFamilyBuilder.cs              # Master host compiler, geometry, multi-type catalog & loading
-│   └── TemplateResolver.cs                 # Intelligent Revit family template locator
+│   └── TemplateResolver.cs                 # Multi-language & multi-version family template locator
 │
 ├── UI/
-│   ├── ForgeWindow.xaml                    # Modeless WPF GUI with Preset bar & validation banner
-│   └── ForgeWindow.xaml.cs                 # WPF code-behind with import/export & live diagnostics
+│   ├── ForgeDockablePanel.xaml             # Native Revit Dockable Panel interface
+│   ├── ForgeDockablePanel.xaml.cs          # Dockable panel pipeline execution & rescan logic
+│   ├── ForgeWindow.xaml                    # Standalone modal window with interactive 2D preview canvas
+│   └── ForgeWindow.xaml.cs                 # Standalone window code-behind
 │
 └── Installer/
-    ├── Install-ParametricFamilyForge.ps1   # PowerShell installation engine
-    └── Uninstall-ParametricFamilyForge.ps1 # PowerShell removal engine
+    ├── SetupProgram.cs                     # C# source for compiled Setup.exe
+    ├── Install-ParametricFamilyForge.ps1   # PowerShell installation script
+    └── Uninstall-ParametricFamilyForge.ps1 # PowerShell removal script
 ```
 
 ---
 
-## Configuration
+## Requirements & Compatibility
 
-Click **"⚙ AI Engine Settings"** in the top bar of the add-in to customize:
-- **Gemini API Key**: Your Google Gemini API Key.
-- **AI Model Engine**: Switch between `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.1-flash-lite`, etc.
-- **Temperature**: Precision control (default `0.20` for dimensional accuracy).
-- **Template Directory**: Path to your Revit Family Templates (`.rft`), defaults to standard English templates.
-- **Output Directory**: Target directory where compiled `.rfa` files will be saved.
+* **Autodesk Revit**: 2024, 2025, or 2026.
+* **Target Frameworks**:
+  * `.NET Framework 4.8` for Revit 2024.
+  * `.NET 8.0-windows` for Revit 2025 & Revit 2026.
+* **Operating System**: Windows 10 / 11 (x64).

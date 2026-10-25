@@ -104,14 +104,22 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Archetype Rig:" FontSize="11" Foreground="#ABB2BF" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="BIM Category / Rig:" FontSize="11" Foreground="#ABB2BF" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <ComboBox x:Name="CmbArchetype" Grid.Column="1" FontSize="11">
-                                <ComboBoxItem Content="Auto-Detect (Cut-Sheet / Prompt)" IsSelected="True" Tag="auto" />
-                                <ComboBoxItem Content="Wall-Hung Pedestal Basin (Tapered Shroud)" Tag="pedestal" />
-                                <ComboBoxItem Content="Countertop Vessel Basin (Revolved Bowl)" Tag="vessel" />
-                                <ComboBoxItem Content="Undermount Vanity Sink (Recessed Dish)" Tag="undermount" />
-                                <ComboBoxItem Content="Commercial ADA Sink (Offset P-Trap)" Tag="ada" />
-                                <ComboBoxItem Content="Double-Bowl Kitchen Sink (Dual Cavity)" Tag="kitchen" />
+                                <ComboBoxItem Content="Auto-Detect from Cut-Sheet (Any Category)" IsSelected="True" Tag="auto" />
+                                <ComboBoxItem Content="Plumbing: Wall-Hung Pedestal Basin" Tag="pedestal" />
+                                <ComboBoxItem Content="Plumbing: Vessel Basin (Revolved Cavity)" Tag="vessel" />
+                                <ComboBoxItem Content="Plumbing: Undermount Vanity Sink" Tag="undermount" />
+                                <ComboBoxItem Content="Plumbing: Kitchen Double-Bowl Sink" Tag="kitchen" />
+                                <ComboBoxItem Content="Plumbing: Commercial ADA Basin" Tag="ada" />
+                                <ComboBoxItem Content="Doors: Single / Glazed Panel &amp; Wall Opening" Tag="door" />
+                                <ComboBoxItem Content="Windows: Casement / Glazed Sash &amp; Opening" Tag="window" />
+                                <ComboBoxItem Content="Furniture: Office Desk / Table / Workstation" Tag="desk" />
+                                <ComboBoxItem Content="Furniture: Seating &amp; Task Chair" Tag="chair" />
+                                <ComboBoxItem Content="Casework: Base Cabinets, Cupboards &amp; Shelving" Tag="casework" />
+                                <ComboBoxItem Content="Mechanical &amp; MEP: Pumps, Chillers &amp; Equipment" Tag="mep" />
+                                <ComboBoxItem Content="Structural: Column Baseplate &amp; Anchor Bolts" Tag="structural" />
+                                <ComboBoxItem Content="Specialty Equipment / Generic Model" Tag="generic" />
                             </ComboBox>
                         </Grid>
 

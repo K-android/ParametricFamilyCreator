@@ -218,110 +218,169 @@ namespace ParametricFamilyForge.UI
             {
                 return $"{userPrompt} double bowl kitchen sink with two carved basin cavities, central drainboard fluting, and swivel chrome tap.";
             }
+            if (archetype == "door")
+            {
+                return $"{userPrompt} architectural door with jamb frame, panel leaf, vision lite glazing void cut, lever handle hardware, and 2D plan swing.";
+            }
+            if (archetype == "window")
+            {
+                return $"{userPrompt} exterior window with outer frame, glazed sash, double glazing extrusion, sill projection, and rough wall opening cut.";
+            }
+            if (archetype == "desk")
+            {
+                return $"{userPrompt} office desk with work surface tabletop, metal frame legs, cable grommet void cutouts, and modesty panel.";
+            }
+            if (archetype == "chair")
+            {
+                return $"{userPrompt} ergonomic office task chair with upholstered seat cushion, curved backrest, five-star pedestal base, and armrests.";
+            }
+            if (archetype == "casework")
+            {
+                return $"{userPrompt} architectural casework millwork base cabinet with countertop, adjustable shelving, dual hinged doors, and drawer pulls.";
+            }
+            if (archetype == "mep")
+            {
+                return $"{userPrompt} mechanical equipment pump / chiller with rigid chassis base, motor housing, suction pipe connector, and discharge pipe connector.";
+            }
+            if (archetype == "structural")
+            {
+                return $"{userPrompt} structural steel column baseplate with central column stub, four corner anchor bolt void holes, and triangular stiffener gussets.";
+            }
             return userPrompt;
         }
 
         private void ApplyArchetypeEnhancements(FamilySchema schema, string archetype)
         {
-            // If the schema lacks HostRevolves, inject organic dished bowl cavity void
             if (schema.HostRevolves == null) schema.HostRevolves = new List<RevolveDef>();
             if (schema.HostSweeps == null) schema.HostSweeps = new List<SweepDef>();
+            if (schema.FamilyTypes == null) schema.FamilyTypes = new List<FamilyTypeDef>();
+
+            string cat = (schema.FamilyCategory ?? "").Trim().ToLowerInvariant();
+            string name = (schema.MasterFamilyName ?? "").Trim().ToLowerInvariant();
+            bool isPlumbing = cat.Contains("plumb") || name.Contains("basin") || name.Contains("sink") || name.Contains("lavatory") || name.Contains("tub") || name.Contains("toilet") || archetype.Contains("basin") || archetype.Contains("sink") || archetype == "pedestal" || archetype == "vessel" || archetype == "undermount" || archetype == "kitchen" || archetype == "ada";
+            bool isDoor = cat.Contains("door") || name.Contains("door") || archetype == "door";
+            bool isWindow = cat.Contains("window") || name.Contains("window") || archetype == "window";
+            bool isFurniture = cat.Contains("furn") || name.Contains("chair") || name.Contains("desk") || name.Contains("table") || archetype == "desk" || archetype == "chair";
 
             double width = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Width", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 600.0;
             double depth = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Depth", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 450.0;
             double height = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Height", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 850.0;
-            double bowlDepth = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Bowl_Depth", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 140.0;
 
-            if (schema.HostRevolves.Count == 0)
+            if (isPlumbing)
             {
-                schema.HostRevolves.Add(new RevolveDef
-                {
-                    Name = "Void_Inner_Bowl_Cavity_Dish",
-                    IsVoid = true,
-                    RevolveType = "BowlDish",
-                    AxisX_mm = 0,
-                    AxisY_mm = -depth * 0.45,
-                    StartZ_mm = height - bowlDepth,
-                    EndZ_mm = height + 5.0,
-                    Radius_mm = (width / 2.0) - 35.0,
-                    InnerRadius_mm = 0.0,
-                    StartAngleDeg = 0.0,
-                    EndAngleDeg = 360.0,
-                    Subcategory = "Basin"
-                });
+                double bowlDepth = schema.MasterParameters.FirstOrDefault(p => p.Name.Equals("Bowl_Depth", StringComparison.OrdinalIgnoreCase))?.DefaultValueMm ?? 140.0;
 
-                schema.HostRevolves.Add(new RevolveDef
+                if (schema.HostRevolves.Count == 0)
                 {
-                    Name = "Solid_Waste_Flange_Ring",
-                    IsVoid = false,
-                    RevolveType = "Cylinder",
-                    AxisX_mm = 0,
-                    AxisY_mm = -depth * 0.45,
-                    StartZ_mm = height - bowlDepth - 5.0,
-                    EndZ_mm = height - bowlDepth + 8.0,
-                    Radius_mm = 38.0,
-                    InnerRadius_mm = 20.0,
-                    Subcategory = "Hardware",
-                    MaterialParameter = "Tap_Material"
-                });
+                    schema.HostRevolves.Add(new RevolveDef
+                    {
+                        Name = "Void_Inner_Bowl_Cavity_Dish",
+                        IsVoid = true,
+                        RevolveType = "BowlDish",
+                        AxisX_mm = 0,
+                        AxisY_mm = -depth * 0.45,
+                        StartZ_mm = height - bowlDepth,
+                        EndZ_mm = height + 5.0,
+                        Radius_mm = (width / 2.0) - 35.0,
+                        InnerRadius_mm = 0.0,
+                        StartAngleDeg = 0.0,
+                        EndAngleDeg = 360.0,
+                        Subcategory = "Basin"
+                    });
+
+                    schema.HostRevolves.Add(new RevolveDef
+                    {
+                        Name = "Solid_Waste_Flange_Ring",
+                        IsVoid = false,
+                        RevolveType = "Cylinder",
+                        AxisX_mm = 0,
+                        AxisY_mm = -depth * 0.45,
+                        StartZ_mm = height - bowlDepth - 5.0,
+                        EndZ_mm = height - bowlDepth + 8.0,
+                        Radius_mm = 38.0,
+                        InnerRadius_mm = 20.0,
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Tap_Material"
+                    });
+                }
+
+                if (schema.HostSweeps.Count == 0)
+                {
+                    schema.HostSweeps.Add(new SweepDef
+                    {
+                        Name = "Solid_Curved_Tap_Spout",
+                        IsVoid = false,
+                        ProfileType = "Circle",
+                        ProfileRadius_mm = 11.0,
+                        PathPoints_mm = new List<VectorOffsetDef>
+                        {
+                            new(0, -depth * 0.15, height + 20.0),
+                            new(0, -depth * 0.15, height + 110.0),
+                            new(0, -depth * 0.28, height + 145.0),
+                            new(0, -depth * 0.38, height + 125.0)
+                        },
+                        Subcategory = "Hardware",
+                        MaterialParameter = "Tap_Material"
+                    });
+                }
+
+                if (schema.FamilyTypes.Count == 0)
+                {
+                    schema.FamilyTypes = new List<FamilyTypeDef>
+                    {
+                        new() { Name = "Standard (600mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = width, ["Depth"] = depth, ["Height"] = height } },
+                        new() { Name = "Compact (450mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 450.0, ["Depth"] = Math.Max(350.0, depth * 0.8), ["Height"] = height } },
+                        new() { Name = "Executive (800mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 800.0, ["Depth"] = Math.Min(550.0, depth * 1.2), ["Height"] = height } }
+                    };
+                }
             }
-
-            if (schema.HostSweeps.Count == 0)
+            else if (isDoor)
             {
-                schema.HostSweeps.Add(new SweepDef
+                if (schema.FamilyTypes.Count == 0)
                 {
-                    Name = "Solid_Curved_Tap_Spout",
-                    IsVoid = false,
-                    ProfileType = "Circle",
-                    ProfileRadius_mm = 11.0,
-                    PathPoints_mm = new List<VectorOffsetDef>
+                    schema.FamilyTypes = new List<FamilyTypeDef>
                     {
-                        new(0, -depth * 0.15, height + 20.0),
-                        new(0, -depth * 0.15, height + 110.0),
-                        new(0, -depth * 0.28, height + 145.0),
-                        new(0, -depth * 0.38, height + 125.0)
-                    },
-                    Subcategory = "Hardware",
-                    MaterialParameter = "Tap_Material"
-                });
+                        new() { Name = "Standard (900 x 2100mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 900.0, ["Height"] = 2100.0 } },
+                        new() { Name = "Narrow (750 x 2100mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 750.0, ["Height"] = 2100.0 } },
+                        new() { Name = "Wide (1000 x 2100mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1000.0, ["Height"] = 2100.0 } }
+                    };
+                }
             }
-
-            // Ensure catalog types exist for flex testing
-            if (schema.FamilyTypes == null || schema.FamilyTypes.Count == 0)
+            else if (isWindow)
             {
-                schema.FamilyTypes = new List<FamilyTypeDef>
+                if (schema.FamilyTypes.Count == 0)
                 {
-                    new FamilyTypeDef
+                    schema.FamilyTypes = new List<FamilyTypeDef>
                     {
-                        Name = "Standard (600mm)",
-                        ParameterValues = new Dictionary<string, object>
-                        {
-                            ["Width"] = width,
-                            ["Depth"] = depth,
-                            ["Height"] = height
-                        }
-                    },
-                    new FamilyTypeDef
+                        new() { Name = "Standard (1200 x 1500mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1200.0, ["Height"] = 1500.0 } },
+                        new() { Name = "Small (600 x 900mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 600.0, ["Height"] = 900.0 } },
+                        new() { Name = "Picture (1800 x 1800mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1800.0, ["Height"] = 1800.0 } }
+                    };
+                }
+            }
+            else if (isFurniture)
+            {
+                if (schema.FamilyTypes.Count == 0)
+                {
+                    schema.FamilyTypes = new List<FamilyTypeDef>
                     {
-                        Name = "Compact (450mm)",
-                        ParameterValues = new Dictionary<string, object>
-                        {
-                            ["Width"] = 450.0,
-                            ["Depth"] = Math.Max(350.0, depth * 0.8),
-                            ["Height"] = height
-                        }
-                    },
-                    new FamilyTypeDef
+                        new() { Name = "Standard (1500 x 750mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1500.0, ["Depth"] = 750.0, ["Height"] = 740.0 } },
+                        new() { Name = "Compact (1200 x 600mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1200.0, ["Depth"] = 600.0, ["Height"] = 740.0 } },
+                        new() { Name = "Executive (1800 x 900mm)", ParameterValues = new Dictionary<string, object> { ["Width"] = 1800.0, ["Depth"] = 900.0, ["Height"] = 740.0 } }
+                    };
+                }
+            }
+            else
+            {
+                if (schema.FamilyTypes.Count == 0)
+                {
+                    schema.FamilyTypes = new List<FamilyTypeDef>
                     {
-                        Name = "Executive (800mm)",
-                        ParameterValues = new Dictionary<string, object>
-                        {
-                            ["Width"] = 800.0,
-                            ["Depth"] = Math.Min(550.0, depth * 1.2),
-                            ["Height"] = height
-                        }
-                    }
-                };
+                        new() { Name = "Type 1 (Standard)", ParameterValues = new Dictionary<string, object> { ["Width"] = width, ["Depth"] = depth, ["Height"] = height } },
+                        new() { Name = "Type 2 (Compact)", ParameterValues = new Dictionary<string, object> { ["Width"] = width * 0.8, ["Depth"] = depth * 0.8, ["Height"] = height } },
+                        new() { Name = "Type 3 (Large)", ParameterValues = new Dictionary<string, object> { ["Width"] = width * 1.25, ["Depth"] = depth * 1.25, ["Height"] = height } }
+                    };
+                }
             }
         }
 

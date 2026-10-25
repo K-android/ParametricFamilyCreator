@@ -85,6 +85,13 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("nested_families")]
         public List<NestedFamilyDef> NestedFamilies { get; set; } = new();
+
+        /// <summary>
+        /// Optional strongly-typed cut-sheet specification with datums and confidence scores.
+        /// When present, drives deterministic archetype builders and Revit BRep verification.
+        /// </summary>
+        [JsonPropertyName("cut_sheet_spec")]
+        public ExtractedCutSheetSpec? CutSheetSpec { get; set; }
     }
 
     /// <summary>

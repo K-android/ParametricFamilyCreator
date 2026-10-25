@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using ParametricFamilyForge.Models;
+using ParametricFamilyForge.RevitEngine.Archetypes;
 
 namespace ParametricFamilyForge.Services
 {
@@ -178,7 +179,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             if (!string.IsNullOrEmpty(imageFilePath) && File.Exists(imageFilePath))
             {
                 string ext = Path.GetExtension(imageFilePath).ToLowerInvariant();
-                ReportStatus($"📄 Analyzing visual & textual context in {(ext == ".pdf" ? "PDF cut-sheet" : "reference image")}: {Path.GetFileName(imageFilePath)}...");
+                ReportStatus($"ðŸ“„ Analyzing visual & textual context in {(ext == ".pdf" ? "PDF cut-sheet" : "reference image")}: {Path.GetFileName(imageFilePath)}...");
 
                 byte[] imageBytes = OptimizeImageForVision(imageFilePath!, out string mimeType);
                 parts.Add(new
@@ -196,7 +197,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     var embeddedImages = ExtractImagesFromPdf(imageFilePath!);
                     if (embeddedImages.Count > 0)
                     {
-                        ReportStatus($"🖼️ Extracted {embeddedImages.Count} embedded image(s) from inside the PDF for deep visual inspection...");
+                        ReportStatus($"ðŸ–¼ï¸ Extracted {embeddedImages.Count} embedded image(s) from inside the PDF for deep visual inspection...");
                         foreach (var img in embeddedImages)
                         {
                             parts.Add(new
@@ -245,7 +246,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             // 3. Clean up and normalize model name
             string cleanModel = NormalizeModelName(modelName);
 
-            ReportStatus($"🔍 Checking available Gemini 3 / 4 models for your API key...");
+            ReportStatus($"ðŸ” Checking available Gemini 3 / 4 models for your API key...");
             List<string> availableModels = await GetAvailableModelsAsync(apiKey, cancellationToken);
 
             var errors = new List<string>();
@@ -254,7 +255,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             for (int idx = 0; idx < candidateModels.Count; idx++)
             {
                 var targetModel = candidateModels[idx];
-                ReportStatus($"🧠 AI Active Reasoning & 3D BIM Modelling with '{targetModel}' (attempt {idx + 1}/{candidateModels.Count})...");
+                ReportStatus($"ðŸ§  AI Active Reasoning & 3D BIM Modelling with '{targetModel}' (attempt {idx + 1}/{candidateModels.Count})...");
 
                 string jsonPayload = BuildRequestPayload(parts, temperature);
                 try
@@ -272,10 +273,10 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     {
                         try
                         {
-                            ReportStatus($"🔧 Parsing & verifying 3D geometry from '{targetModel}'...");
+                            ReportStatus($"ðŸ”§ Parsing & verifying 3D geometry from '{targetModel}'...");
                             var schema = ParseGeminiResponse(body, userPrompt, imageFilePath);
                             LastUsedModel = targetModel;
-                            ReportStatus($"✅ AI Synthesis complete ({schema.HostExtrusions.Count} host extrusions, {schema.NestedFamilies.Count} nested components).");
+                            ReportStatus($"âœ… AI Synthesis complete ({schema.HostExtrusions.Count} host extrusions, {schema.NestedFamilies.Count} nested components).");
                             return schema;
                         }
                         catch (Exception parseEx)
@@ -311,7 +312,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             }
 
             throw new InvalidOperationException(
-                "All Gemini 3 / Gemini 4 models failed:\n  • " + string.Join("\n  • ", errors));
+                "All Gemini 3 / Gemini 4 models failed:\n  â€¢ " + string.Join("\n  â€¢ ", errors));
         }
 
         /// <summary>
@@ -357,7 +358,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             foreach (var targetModel in candidates)
             {
-                ReportStatus($"💬 Refining geometry with AI model: {targetModel}...");
+                ReportStatus($"ðŸ’¬ Refining geometry with AI model: {targetModel}...");
                 string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                 string requestJson = BuildRequestPayload(parts, temperature);
 
@@ -387,7 +388,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
                     var refinedSchema = ParseGeminiResponse(responseBody, refinementPrompt);
                     LastUsedModel = targetModel;
-                    ReportStatus($"✨ Geometry refinement complete ({targetModel})!");
+                    ReportStatus($"âœ¨ Geometry refinement complete ({targetModel})!");
                     return refinedSchema;
                 }
                 catch (GeminiAuthException) { throw; }
@@ -406,7 +407,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             }
 
             // Fallback to deterministic offline refinement if cloud AI models failed
-            ReportStatus("⚠ Cloud AI refinement unavailable; applied deterministic local rule refinement.");
+            ReportStatus("âš  Cloud AI refinement unavailable; applied deterministic local rule refinement.");
             return ApplyDeterministicRefinement(currentSchema, refinementPrompt);
         }
 
@@ -616,7 +617,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             foreach (var targetModel in candidates)
             {
-                ReportStatus($"🔍 Rescanning model against PDF cut-sheet with {targetModel}...");
+                ReportStatus($"ðŸ” Rescanning model against PDF cut-sheet with {targetModel}...");
                 string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{targetModel}:generateContent?key={apiKey}";
                 string requestJson = BuildRequestPayload(parts, 0.1);
 
@@ -651,7 +652,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                                     var report = JsonSerializer.Deserialize<PdfRescanReport>(raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                     if (report != null)
                                     {
-                                        ReportStatus($"✔ PDF cut-sheet verification complete: {report.OverallMatchPercent}% match!");
+                                        ReportStatus($"âœ” PDF cut-sheet verification complete: {report.OverallMatchPercent}% match!");
                                         return report;
                                     }
                                 }
@@ -896,11 +897,11 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 if (doc.RootElement.TryGetProperty("error", out var err) && err.TryGetProperty("message", out var msg))
                 {
                     string s = msg.GetString() ?? "";
-                    return s.Length > 220 ? s.Substring(0, 220) + "…" : s;
+                    return s.Length > 220 ? s.Substring(0, 220) + "â€¦" : s;
                 }
             }
             catch { }
-            return body.Length > 220 ? body.Substring(0, 220) + "…" : body;
+            return body.Length > 220 ? body.Substring(0, 220) + "â€¦" : body;
         }
 
         private static string DescribeStatus(int code) => code switch
@@ -1244,23 +1245,77 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 CopyEnrichedGeometry(schema, enriched);
             }
 
-            // Architectural Realism Guard for Basins & Sinks:
-            // Ensure every basin/sink family features realistic curved profiles, under-bowl taper blend, pedestal shroud, hollow inner bowl, tap cutout, waste drain, and chrome mixer faucet!
-            string lowerName = $"{schema.MasterFamilyName} {schema.FamilyCategory} {userPrompt}".ToLowerInvariant();
-            bool isBasinType = lowerName.Contains("basin") || lowerName.Contains("sink") || lowerName.Contains("lavatory");
-            if (isBasinType && (schema.HostExtrusions.Count <= 2 || !schema.HostExtrusions.Any(e => e.IsVoid) || schema.HostBlends.Count == 0))
+            // Constrain 3D BIM geometry creation to Deterministic Archetype Builders & PDF Vector Extraction
+            var spec = BuildOrExtractSpec(schema, userPrompt, imageFilePath, rawAiJson);
+            if (aiW > 0) spec.OverallWidthMm = aiW;
+            if (aiD > 0) spec.OverallDepthMm = aiD;
+            if (aiH > 0) spec.OverallHeightMm = aiH;
+
+            // 1. Direct Vector PDF extraction (cad polylines + calibrated dimensions)
+            if (!string.IsNullOrEmpty(imageFilePath) && PdfVectorExtractor.HasRichVectorLinework(imageFilePath!))
             {
-                double maxW = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Abs(e.MaxX_mm - e.MinX_mm)) : 545;
-                double maxD = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Abs(e.MaxY_mm - e.MinY_mm)) : 410;
-                double topZ = schema.HostExtrusions.Count > 0 ? schema.HostExtrusions.Max(e => Math.Max(e.StartZ_mm, e.EndZ_mm)) : 850;
-
-                double w = aiW >= 50 ? aiW : (maxW >= 50 ? maxW : 545);
-                double d = aiD >= 50 ? aiD : (maxD >= 50 ? maxD : 410);
-                double h = aiH >= 50 ? aiH : (topZ >= 50 ? topZ : 850);
-
-                var realisticBasin = CreateBasinSchema(w, d, h, aiT, $"{userPrompt} {schema.MasterFamilyName}");
-                CopyEnrichedGeometry(schema, realisticBasin);
+                ReportStatus("📐 Vector PDF stream detected! Calibrating CAD linework contours...");
+                var vecRes = PdfVectorExtractor.ExtractProfiles(imageFilePath!, spec, ReportStatus);
+                if (vecRes.HasSufficientVectors && vecRes.ExtractedDimensions.Count >= 2)
+                {
+                    double maxDim = vecRes.ExtractedDimensions.Max();
+                    double midDim = vecRes.ExtractedDimensions.Where(dim => dim < maxDim && dim > 150).DefaultIfEmpty(0).FirstOrDefault();
+                    if (maxDim >= 300 && (spec.OverallWidthMm <= 0 || spec.OverallWidthMm == 550)) spec.OverallWidthMm = maxDim;
+                    if (midDim >= 200 && (spec.OverallDepthMm <= 0 || spec.OverallDepthMm == 420)) spec.OverallDepthMm = midDim;
+                }
             }
+
+            // 2. Deterministic C# Archetype Rig Dispatch (SemiPedestalBasin, CountertopBasin, WC, Door, etc.)
+            string combinedQuery = $"{userPrompt} {schema.MasterFamilyName} {schema.FamilyCategory}";
+            var rig = ArchetypeRigRegistry.ResolveRig(spec.Archetype, combinedQuery);
+            ReportStatus($"🏗 Modeling 3D BIM geometry via deterministic C# rig: '{rig.ArchetypeName}'...");
+
+            var rigSchema = rig.BuildSchema(spec, ReportStatus);
+            schema.CutSheetSpec = spec;
+
+            if (!string.IsNullOrWhiteSpace(schema.MasterFamilyName) && schema.MasterFamilyName != "ParametricHostFamily")
+                rigSchema.MasterFamilyName = schema.MasterFamilyName;
+            if (!string.IsNullOrWhiteSpace(schema.FamilyCategory) && schema.FamilyCategory != "Generic Models")
+                rigSchema.FamilyCategory = schema.FamilyCategory;
+
+            if (schema.MasterParameters.Count == 0)
+                schema.MasterParameters = rigSchema.MasterParameters;
+            if (schema.ReferencePlanes.Count == 0)
+                schema.ReferencePlanes = rigSchema.ReferencePlanes;
+
+            CopyEnrichedGeometry(schema, rigSchema);
+        }
+
+        /// <summary>
+        /// Builds or extracts strongly-typed cut-sheet specification with datums and confidence.
+        /// </summary>
+        private ExtractedCutSheetSpec BuildOrExtractSpec(FamilySchema schema, string userPrompt, string? imageFilePath, string rawAiJson)
+        {
+            if (schema.CutSheetSpec != null) return schema.CutSheetSpec;
+
+            var spec = new ExtractedCutSheetSpec
+            {
+                Archetype = schema.MasterFamilyName,
+                RevitCategory = schema.FamilyCategory,
+                RawExtractedText = rawAiJson
+            };
+
+            foreach (var p in schema.MasterParameters)
+            {
+                if (p.DefaultValueMm > 0)
+                {
+                    string datum = DimensionDatums.Floor;
+                    string lower = p.Name.ToLowerInvariant();
+                    if (lower.Contains("width") || lower.Contains("length")) { datum = DimensionDatums.Centerline; spec.OverallWidthMm = p.DefaultValueMm; }
+                    else if (lower.Contains("depth") || lower.Contains("projection")) { datum = DimensionDatums.WallFace; spec.OverallDepthMm = p.DefaultValueMm; }
+                    else if (lower.Contains("height")) { datum = DimensionDatums.Floor; spec.OverallHeightMm = p.DefaultValueMm; }
+                    else if (lower.Contains("bowl")) datum = DimensionDatums.RimLevel;
+
+                    spec.SetParam(p.Name, p.DefaultValueMm, datum, 0.95);
+                }
+            }
+
+            return spec;
         }
 
         /// <summary>
@@ -1329,7 +1384,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     docText = ExtractTextFromPdf(imageOrPdfPath!);
                     if (docText.Trim().Length < 20)
                     {
-                        report.AppendLine("⚠ PDF contains no extractable text (scanned image, outlined CAD text, or custom font encoding). " +
+                        report.AppendLine("âš  PDF contains no extractable text (scanned image, outlined CAD text, or custom font encoding). " +
                                           "Offline mode can't read it; use AI Synthesis or type key dimensions in the prompt.");
                     }
                     else
@@ -1444,7 +1499,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     report.AppendLine($"  {label} = {fromPrompt.Value:0.#} mm (from prompt)");
                     return fromPrompt.Value;
                 }
-                report.AppendLine($"  ⚠ {label} {fromPrompt.Value:0.#} mm from prompt is outside plausible range {min:0}-{max:0} mm; ignored.");
+                report.AppendLine($"  âš  {label} {fromPrompt.Value:0.#} mm from prompt is outside plausible range {min:0}-{max:0} mm; ignored.");
             }
             if (fromDoc.HasValue)
             {
@@ -1453,7 +1508,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                     report.AppendLine($"  {label} = {fromDoc.Value:0.#} mm (from attached sheet)");
                     return fromDoc.Value;
                 }
-                report.AppendLine($"  ⚠ {label} {fromDoc.Value:0.#} mm from sheet is outside plausible range {min:0}-{max:0} mm; ignored.");
+                report.AppendLine($"  âš  {label} {fromDoc.Value:0.#} mm from sheet is outside plausible range {min:0}-{max:0} mm; ignored.");
             }
             report.AppendLine($"  {label} = {fallback:0.#} mm (standard default)");
             return fallback;
@@ -1487,7 +1542,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
             // A) "A x B x C" / "A x B" sequences, honouring an explicit order label like "(W x D x H)" or "HxWxD".
             string seqNum = @"(\d+(?:\.\d+)?)\s*" + UnitRx + "?";
-            var triple = Regex.Match(text, seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
+            var triple = Regex.Match(text, seqNum + @"\s*(?:x|Ã—|by|\*)\s*" + seqNum + @"\s*(?:x|Ã—|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
             if (triple.Success)
             {
                 string order = DetectOrder(text, 3) ?? "WDH";
@@ -1498,7 +1553,7 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             }
             else
             {
-                var dub = Regex.Match(text, seqNum + @"\s*(?:x|×|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
+                var dub = Regex.Match(text, seqNum + @"\s*(?:x|Ã—|by|\*)\s*" + seqNum, RegexOptions.IgnoreCase);
                 if (dub.Success)
                 {
                     bool vertical = category == "door" || category == "window" || category == "casework";
@@ -1555,8 +1610,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
         /// <summary>Finds an explicit dimension order label such as "W x D x H", "(HxWxD)", "L x W x H".</summary>
         private static string? DetectOrder(string text, int count)
         {
-            string l = @"\b([WDHL])\s*(?:x|×|\*)\s*([WDHL])";
-            if (count == 3) l += @"\s*(?:x|×|\*)\s*([WDHL])\b";
+            string l = @"\b([WDHL])\s*(?:x|Ã—|\*)\s*([WDHL])";
+            if (count == 3) l += @"\s*(?:x|Ã—|\*)\s*([WDHL])\b";
             else l += @"\b";
             var m = Regex.Match(text, l, RegexOptions.IgnoreCase);
             if (!m.Success) return null;
@@ -1582,8 +1637,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 return v;
             }
 
-            // Unicode primes → ASCII
-            text = text.Replace('′', '\'').Replace('″', '"').Replace('’', '\'').Replace('”', '"');
+            // Unicode primes â†’ ASCII
+            text = text.Replace("\u2032", "\x27").Replace("\u2033", "\"").Replace("\u2019", "\x27").Replace("\u201D", "\"");
 
             // 3'-6 1/2"  /  3' 6"  /  3'-0"
             text = Regex.Replace(text, @"(\d+)\s*'\s*-?\s*(\d+)?(?:\s+(\d+)/(\d+))?\s*""", m =>
@@ -1622,8 +1677,8 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
 
         /// <summary>
         /// For numbers with no unit anywhere: choose the unit (mm, cm, m, in, ft) whose result is closest
-        /// (on a log scale) to the typical size for that dimension. "36" for a door width → inches (914 mm),
-        /// "0.9" → metres, "900" → mm, "210" for door height → cm. Slight bias toward mm.
+        /// (on a log scale) to the typical size for that dimension. "36" for a door width â†’ inches (914 mm),
+        /// "0.9" â†’ metres, "900" â†’ mm, "210" for door height â†’ cm. Slight bias toward mm.
         /// </summary>
         private static double InferUnitless(double v, double typical)
         {
@@ -1859,10 +1914,10 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
                 }
                 var dims = ParseDimensions(combined, cat ?? "generic");
                 var dimHints = new List<string>();
-                if (dims.W.HasValue) dimHints.Add($"Width≈{Math.Round(dims.W.Value)}mm");
-                if (dims.D.HasValue) dimHints.Add($"Depth≈{Math.Round(dims.D.Value)}mm");
-                if (dims.H.HasValue) dimHints.Add($"Height≈{Math.Round(dims.H.Value)}mm");
-                if (dims.T.HasValue) dimHints.Add($"Thickness≈{Math.Round(dims.T.Value)}mm");
+                if (dims.W.HasValue) dimHints.Add($"Widthâ‰ˆ{Math.Round(dims.W.Value)}mm");
+                if (dims.D.HasValue) dimHints.Add($"Depthâ‰ˆ{Math.Round(dims.D.Value)}mm");
+                if (dims.H.HasValue) dimHints.Add($"Heightâ‰ˆ{Math.Round(dims.H.Value)}mm");
+                if (dims.T.HasValue) dimHints.Add($"Thicknessâ‰ˆ{Math.Round(dims.T.Value)}mm");
                 if (dimHints.Count > 0)
                 {
                     sb.AppendLine("Pre-scanned Dimension Candidates from Text: " + string.Join(", ", dimHints));

@@ -464,6 +464,9 @@ namespace ParametricFamilyForge.RevitEngine
                 // 6b. Automated Parametric Flex Verification across catalog types
                 VerifyFamilyFlexing(masterDoc, schema, onLog);
 
+                // 6c. Closed-Loop In-Revit BRep Geometry Verification & Auto-Healing (Delta <= 2mm check)
+                GeometryVerifier.VerifyAndSelfHeal(masterDoc, schema, onLog);
+
                 masterDoc.Regenerate();
                 trans.Commit();
             }

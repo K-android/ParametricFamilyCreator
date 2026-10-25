@@ -32,6 +32,7 @@ namespace ParametricFamilyForge.UI
             _externalEvent = externalEvent;
             _handler = handler;
             _geminiService = new GeminiVisionService();
+            _geminiService.OnStatusUpdate = msg => Dispatcher.Invoke(() => LogMessage(msg));
 
             _settings = SettingsService.LoadSettings();
             TxtDockApiKey.Password = _settings.ApiKey;
@@ -177,7 +178,7 @@ namespace ParametricFamilyForge.UI
                 // STAGE 6: Queue Revit Generation & Viewport Activation
                 // ========================================================
                 UpdateStageUi(6, null, "Verifying...");
-                LogMessage($"[PIPELINE STAGE 6] Dispatching geometry into Revit RevitEngine via ExternalEvent...");
+                LogMessage($"[PIPELINE STAGE 6] Dispatching geometry into Revit Engine via ExternalEvent with closed-loop BRep verification (Tolerance <= 2mm)...");
 
                 _handler.CurrentSchema = _currentSchema;
                 _handler.TemplateDirectory = _settings.TemplateDirectory;

@@ -8,6 +8,15 @@
 
 Unlike basic AI add-ins that generate blocky, faceted approximations or crash when flexing dimensions, **ParametricFamilyForge** operates on a multi-stage engineering pipeline:
 
+* **Strictly Constrained Extraction → Deterministic C# Archetype Rigs**:
+  * Strips the LLM of any authority over raw 3D polygon/mesh topology. Constrains Gemini strictly to cut-sheet parameter extraction into an `ExtractedCutSheetSpec` where every measurement carries its datum anchor (`Floor`, `WallFace`, `RimLevel`, `Centerline`, `Countertop`), source page, and confidence rating.
+  * 100% of 3D BIM modeling is performed by pre-engineered, mathematically watertight deterministic C# archetype rigs (`SemiPedestalBasinRig`, `CountertopBasinRig`, `WaterClosetRig`, `SingleDoorRig`, `CaseworkCabinetRig`, `BaseplateJointRig`).
+* **Direct Vector PDF Linework Extraction (`PdfPig`)**:
+  * Parses native PostScript CAD vector curves (splines, arcs, lines) directly from PDF streams without raster OCR guessing.
+  * Calibrates scale from dimension callout annotations ($S = \text{DimMm} / \text{PtSpan}$) and feeds true manufacturer profiles directly into Revit `CurveArray` sketches. Falls back gracefully to multimodal vision only on raster-only scans.
+* **Closed-Loop In-Revit BRep Geometry Verification & Auto-Healing**:
+  * Directly audits real Revit `Solid` BRep bounding boxes and reference plane distances via the Revit API post-generation.
+  * Calculates deviation $\Delta = |\text{Modeled} - \text{Spec}|$. If any feature is off by more than $2.0\text{ mm}$, an automated self-healing loop adjusts parameter bounds in `FamilyManager`, regenerates the document, and verifies convergence before committing.
 * **Native Revit Dockable Panel (`IDockablePaneProvider`)**: Sits right inside your Revit workspace as a native dockable pane with single-click end-to-end procedural execution.
 * **Organic 3D Curvature (Revolves & 3D Sweeps)**:
   * Uses native Revit `NewRevolution` to carve smooth $360^\circ$ dished bowl cavities, spherical contours, and axisymmetric cylinders.
@@ -20,8 +29,6 @@ Unlike basic AI add-ins that generate blocky, faceted approximations or crash wh
   * Upon generation, the add-in automatically opens the family in Revit's 3D Family Editor (`uiApp.OpenAndActivateDocument`), switches to the 3D isometric view, and frames the camera on the geometry.
 * **Automated Multi-Type Parametric Flex-Test Rig**:
   * Built-in flex test engine iterates through all defined catalog types (e.g. *Standard*, *Compact*, *Executive*), flexing dimensional parameters in `FamilyManager` and validating constraint satisfaction within sub-transactions.
-* **Closed-Loop PDF Cut-Sheet Rescan Audit**:
-  * Rescans the modeled 3D geometry against the original cut-sheet PDF and generates a side-by-side dimensional verification table with an overall compliance match score.
 * **Conversational Geometry Refiner**:
   * Allows one-click refinement chips (*"+25mm Bowl Depth"*, *"Add Overflow Hole"*, *"Wall-Hung Pedestal"*, *"Scale Width 800mm"*) or conversational prompt adjustments without regenerating from scratch.
 
@@ -106,19 +113,32 @@ ParametricFamilyForge/
 │   └── LaunchForgeCommand.cs               # Toggles the native Revit Dockable Panel
 │
 ├── Models/
+│   ├── ExtractedCutSheetSpec.cs            # Strict parameter extraction schema (Datums, Pages, Confidence)
 │   ├── FamilySchema.cs                     # Root procedural schema (Extrusions, Blends, Revolves, Sweeps)
 │   ├── ForgeSettings.cs                    # Configuration settings data model
 │   └── PdfRescanReport.cs                  # Spec verification & dimensional compliance report models
 │
 ├── Services/
 │   ├── GeminiVisionService.cs              # Vision API, orthographic parsing, rescan audit & offline heuristics
+│   ├── PdfVectorExtractor.cs               # Native PDF PostScript vector curve & dimension scale extractor
 │   ├── PresetService.cs                    # Architectural presets & type catalog export
 │   ├── SchemaValidator.cs                  # Pre-generation geometric sanity & diagnostic checks
 │   ├── SettingsService.cs                  # Configuration persistence
 │   └── SharedParameterService.cs          # Revit Shared Parameter file exporter (.txt)
 │
 ├── RevitEngine/
+│   ├── Archetypes/                         # Deterministic kinematic C# archetype modeling rigs
+│   │   ├── IArchetypeRig.cs                # Archetype contract & verification rule specification
+│   │   ├── SemiPedestalBasinRig.cs         # Wall-hung semi-pedestal washbasin rig
+│   │   ├── CountertopBasinRig.cs           # Countertop vessel basin rig
+│   │   ├── WaterClosetRig.cs               # Wall-hung & floor-mounted toilet rig
+│   │   ├── SingleDoorRig.cs                # Single architectural door with frame, leaf & swing
+│   │   ├── CaseworkCabinetRig.cs           # Base & wall casework millwork rig
+│   │   ├── BaseplateJointRig.cs            # Structural steel column baseplate joint rig
+│   │   ├── UniversalArchetypeRig.cs        # Guaranteed watertight generic component rig
+│   │   └── ArchetypeRigRegistry.cs         # Central factory and dispatch registry
 │   ├── FamilyGenerationHandler.cs          # Modeless thread-safe IExternalEventHandler bridge & viewport sync
+│   ├── GeometryVerifier.cs                 # Closed-loop Revit API BRep solid verifier & self-healing loop
 │   ├── MasterFamilyBuilder.cs              # Core builder (Extrusions, Blends, Revolves, Sweeps, Boolean cuts, Flex Rig)
 │   ├── NestedFamilyBuilder.cs              # Sub-component family compiler
 │   └── TemplateResolver.cs                 # Multi-language & multi-version family template locator

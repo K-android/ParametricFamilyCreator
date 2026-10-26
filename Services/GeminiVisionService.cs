@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -18,7 +18,7 @@ namespace ParametricFamilyForge.Services
     /// Service responsible for communicating with Google's Gemini Vision API using Structured JSON Output
     /// or providing a deterministic rule-based fallback for generating valid FamilySchema models.
     /// </summary>
-    public class GeminiVisionService
+    public partial class GeminiVisionService
     {
         private readonly HttpClient _httpClient;
         public const string DefaultGeminiModel = "gemini-3.8-flash";
@@ -1279,7 +1279,19 @@ RETURN ONLY VALID JSON matching this exact structure without markdown commentary
             if (schema.ReferencePlanes.Count == 0)
                 schema.ReferencePlanes = rigSchema.ReferencePlanes;
 
-            CopyEnrichedGeometry(schema, rigSchema);
+            // Guard against wiping out custom multi-part geometry with universal fallback box
+            bool hasCustomMultiPart = schema.HostExtrusions != null && schema.HostExtrusions.Count >= 2;
+            if (!hasCustomMultiPart || rig is not UniversalArchetypeRig)
+            {
+                CopyEnrichedGeometry(schema, rigSchema);
+            }
+            else
+            {
+                if (schema.MasterParameters.Count == 0)
+                    schema.MasterParameters = rigSchema.MasterParameters;
+                if (schema.ReferencePlanes.Count == 0)
+                    schema.ReferencePlanes = rigSchema.ReferencePlanes;
+            }
         }
 
         /// <summary>

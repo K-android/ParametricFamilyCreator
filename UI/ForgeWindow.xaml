@@ -6,7 +6,8 @@
         MinHeight="680" MinWidth="950"
         WindowStartupLocation="CenterScreen"
         Background="#181A1F" Foreground="#E0E2E8"
-        FontFamily="Segoe UI" FontSize="13">
+        FontFamily="Segoe UI" FontSize="13"
+        Loaded="ForgeWindow_Copilot_Loaded">
 
     <Window.Resources>
         <!-- UI Theme Colors -->
@@ -347,6 +348,130 @@
 
                 <!-- Row 3: Tabs for Interactive 2D Geometry Preview & JSON Specification Editor -->
                 <TabControl x:Name="RightTabControl" Grid.Row="3" Background="#1E2227" BorderBrush="{StaticResource BorderBrushColor}" SelectionChanged="RightTabControl_SelectionChanged">
+                    <!-- Tab 0: Conversational AI Revit Family Copilot -->
+                    <TabItem Header="💬 AI Family Copilot" IsSelected="True">
+                        <Grid Background="#1E2227">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Live Document Status Bar -->
+                            <Border Grid.Row="0" Background="#21252B" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,0,1" Padding="8,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🏛️ Live Revit Document: " FontSize="11" Foreground="#5C6370" />
+                                        <TextBlock x:Name="TxtLiveDocName" Text="Active Family Editor" FontSize="11" FontWeight="SemiBold" Foreground="#61AFEF" />
+                                        <TextBlock x:Name="TxtLiveDocParams" Text=" | Ready for copilot instructions" FontSize="11" Foreground="#ABB2BF" />
+                                    </StackPanel>
+                                    <Button x:Name="BtnInspectLive" Grid.Column="1" Content="🔍 Inspect Current Family" Click="BtnInspectLive_Click" Background="#3E4451" Padding="8,2" FontSize="11" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Scrollable Chat Stream & Plan Cards -->
+                            <ScrollViewer x:Name="ChatScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="10">
+                                <StackPanel x:Name="ChatStackPanel">
+                                    <!-- Welcome message -->
+                                    <Border Background="#21252B" BorderBrush="#3E4451" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock Text="🤖 Family Forge AI Copilot" FontWeight="Bold" Foreground="#61AFEF" FontSize="13" Margin="0,0,0,4" />
+                                            <TextBlock Text="I can create, inspect, modify, repair, and validate Revit families iteratively through conversation. Try asking:" Foreground="#ABB2BF" FontSize="12" Margin="0,0,0,8" />
+                                            <WrapPanel>
+                                                <Button Content="Create 1200x1500 window with 75mm frame" Click="QuickChip_Click" Tag="Create a 1200 x 1500 parametric window with a 75 mm frame." Background="#282C34" Foreground="#98C379" FontSize="11" Padding="8,4" Margin="0,0,6,6" />
+                                                <Button Content="Make the frame 100 mm" Click="QuickChip_Click" Tag="Make the frame 100 mm." Background="#282C34" Foreground="#E5C07B" FontSize="11" Padding="8,4" Margin="0,0,6,6" />
+                                                <Button Content="Add a 75 mm projecting sill" Click="QuickChip_Click" Tag="Add a 75 mm projecting sill." Background="#282C34" Foreground="#61AFEF" FontSize="11" Padding="8,4" Margin="0,0,6,6" />
+                                                <Button Content="Why isn't width flexing correctly?" Click="QuickChip_Click" Tag="Why isn't the width parameter flexing correctly?" Background="#282C34" Foreground="#E06C75" FontSize="11" Padding="8,4" Margin="0,0,6,6" />
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Plan Card Container -->
+                                    <Border x:Name="PlanCard" Background="#1B222C" BorderBrush="#61AFEF" BorderThickness="1.5" CornerRadius="6" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock x:Name="TxtPlanTitle" Text="📋 Copilot Execution Plan" FontWeight="Bold" Foreground="#61AFEF" FontSize="13" />
+                                                <Border x:Name="BadgePlanIntent" Grid.Column="1" Background="#282C34" CornerRadius="3" Padding="6,2">
+                                                    <TextBlock x:Name="TxtPlanIntent" Text="CREATE_GEOMETRY" FontSize="10" FontWeight="Bold" Foreground="#98C379" />
+                                                </Border>
+                                            </Grid>
+                                            <TextBlock x:Name="TxtPlanSummary" Text="Plan summary description" Foreground="#E0E2E8" FontSize="12" Margin="0,0,0,8" />
+                                            <TextBlock Text="Operations to execute:" FontWeight="SemiBold" Foreground="#ABB2BF" FontSize="11" Margin="0,0,0,4" />
+                                            <ItemsControl x:Name="LstPlanOperations" Margin="0,0,0,8">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#21252B" CornerRadius="3" Padding="6,3" Margin="0,0,0,4">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <Border Background="#282C34" CornerRadius="2" Padding="4,1" Margin="0,0,6,0">
+                                                                    <TextBlock Text="{Binding Operation}" FontSize="10" FontWeight="Bold" Foreground="#61AFEF" />
+                                                                </Border>
+                                                                <TextBlock Grid.Column="1" Text="{Binding Summary}" FontSize="11" Foreground="#ABB2BF" VerticalAlignment="Center" />
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Button x:Name="BtnExecuteCopilotPlan" Content="⚡ Execute Plan in Revit Document" Click="BtnExecuteCopilotPlan_Click" Background="#98C379" Foreground="#1E2227" FontWeight="Bold" Height="32" FontSize="12" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Validation Result Card Container -->
+                                    <Border x:Name="ValidationCard" Background="#1B2B24" BorderBrush="#98C379" BorderThickness="1.5" CornerRadius="6" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock x:Name="TxtValHeader" Text="🛡️ Post-Execution Intent Validation" FontWeight="Bold" Foreground="#98C379" FontSize="13" />
+                                                <Border x:Name="BadgeValStatus" Grid.Column="1" Background="#282C34" CornerRadius="3" Padding="6,2">
+                                                    <TextBlock x:Name="TxtValBadge" Text="VERIFIED" FontSize="10" FontWeight="Bold" Foreground="#98C379" />
+                                                </Border>
+                                            </Grid>
+                                            <TextBlock x:Name="TxtValSummary" Text="Validation summary" Foreground="#E0E2E8" FontSize="12" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="TxtValComponents" Text="Components: 5 distinct solids verified in Revit BRep" Foreground="#ABB2BF" FontSize="11" Margin="0,0,0,4" />
+                                            <TextBlock x:Name="TxtValFlex" Text="Flex Test: Width +200mm physically resized geometry" Foreground="#98C379" FontSize="11" Margin="0,0,0,4" />
+                                            <ItemsControl x:Name="LstDiscrepancies" Margin="0,4,0,6">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}" Foreground="#E06C75" FontSize="11" Margin="0,1" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Button x:Name="BtnAutoRepair" Content="🔧 Execute Auto-Repair Plan" Click="BtnAutoRepair_Click" Background="#E5C07B" Foreground="#1E2227" FontWeight="Bold" Height="28" FontSize="11" Visibility="Collapsed" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Bottom Copilot Input Bar -->
+                            <Border Grid.Row="2" Background="#21252B" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,1,0,0" Padding="8,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="TxtCopilotInput" Height="32" FontSize="12" Padding="6,4" VerticalContentAlignment="Center"
+                                             KeyDown="TxtCopilotInput_KeyDown" Background="#1E2227" Foreground="White" BorderBrush="#3E4451" />
+                                    <Button x:Name="BtnSendCopilot" Grid.Column="1" Content="Send Prompt ↵" Margin="6,0,0,0" Padding="14,0" Height="32"
+                                            Background="#007ACC" Foreground="White" FontWeight="SemiBold" Click="BtnSendCopilot_Click" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
                     <!-- Tab 1: Interactive 2D Geometry Preview -->
                     <TabItem Header="📐 Geometry Preview">
                         <Grid Background="#1E2227">

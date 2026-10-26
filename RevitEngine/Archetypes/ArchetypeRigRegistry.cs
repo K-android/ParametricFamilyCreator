@@ -13,6 +13,7 @@ namespace ParametricFamilyForge.RevitEngine.Archetypes
     {
         private static readonly List<IArchetypeRig> _rigs = new()
         {
+            new ParametricWindowRig(),
             new SemiPedestalBasinRig(),
             new CountertopBasinRig(),
             new WaterClosetRig(),

@@ -1,0 +1,1093 @@
+I want to refactor the existing ParametricFamilyForge Revit add-in from a
+primarily one-shot AI family generator into a Conversational AI Revit Family
+Copilot.
+
+==========================================================
+CRITICAL: ANALYSIS FIRST, CODE SECOND
+==========================================================
+
+DO NOT modify, create, delete, rename, or refactor any file immediately.
+
+Your FIRST task is repository analysis only.
+
+Before writing any code:
+
+1. Read and understand the complete relevant codebase.
+2. Trace the actual runtime execution path.
+3. Determine exactly where Gemini output becomes Revit geometry.
+4. Determine why a request for a complete parametric window can currently
+   collapse into a single extrusion or oversimplified solid.
+5. Determine why the UI can report steps as Done/Verified even when the
+   resulting geometry does not satisfy the requested design intent.
+6. Identify what existing functionality can be reused unchanged.
+7. Identify what needs modification, splitting, extension, or replacement.
+8. Produce a file-by-file refactor plan.
+
+Do not assume the README accurately represents the implementation.
+
+Treat the actual source code as authoritative.
+
+Do NOT start implementing until the architectural analysis and execution-flow
+trace are complete.
+
+==========================================================
+EXISTING CODEBASE
+==========================================================
+
+Pay particular attention to:
+
+- Models/FamilySchema.cs
+- Services/GeminiVisionService.cs
+- RevitEngine/FamilyGenerationHandler.cs
+- RevitEngine/NestedFamilyBuilder.cs
+- RevitEngine/MasterFamilyBuilder.cs
+- UI/ForgeWindow.xaml
+- UI/ForgeWindow.xaml.cs
+
+Also inspect any related classes used by these files.
+
+Do NOT rewrite the application from scratch.
+
+Preserve wherever possible:
+
+- Existing Revit geometry generation
+- ExternalEvent infrastructure
+- Gemini integration
+- Settings
+- Logging
+- Installers
+- Family loading
+- Save RFA functionality
+- Cut-sheet/image input
+- Existing stable Revit API utilities
+
+The goal is an incremental architectural refactor, not a replacement.
+
+==========================================================
+NEW PRODUCT DIRECTION
+==========================================================
+
+Change ParametricFamilyForge from:
+
+Prompt
+→ Generate Complete Family
+→ Done
+
+into:
+
+Conversational AI Revit Family Copilot
+
+The user should progressively be able to:
+
+CREATE
+INSPECT
+MODIFY
+REPAIR
+VALIDATE
+
+a Revit family through natural-language conversation.
+
+Example:
+
+USER:
+"Create a 1200 x 1500 parametric window with a 75 mm frame."
+
+FAMILY FORGE:
+
+Plan:
+- Create Width parameter = 1200 mm
+- Create Height parameter = 1500 mm
+- Create Frame Width parameter = 75 mm
+- Create reference planes
+- Create four frame members
+- Create glazing
+- Add dimensions
+- Add constraints
+
+Then execute this plan using deterministic Revit API operations.
+
+Later:
+
+USER:
+"Make the frame 100 mm."
+
+The assistant must inspect the CURRENT FAMILY and modify the existing
+Frame Width parameter instead of generating a new family.
+
+Later:
+
+USER:
+"Add a 75 mm projecting sill."
+
+The assistant should add the sill to the currently open family.
+
+Later:
+
+USER:
+"Why isn't the width parameter flexing correctly?"
+
+The assistant should inspect the current family parameters, dimensions,
+geometry and constraints.
+
+It should diagnose the issue and generate an appropriate repair plan.
+
+==========================================================
+CORE ARCHITECTURE
+==========================================================
+
+Introduce this architecture:
+
+Natural Language
+        ↓
+Gemini
+        ↓
+Structured Execution Plan
+        ↓
+Schema Validation
+        ↓
+Deterministic Revit Operation Executor
+        ↓
+Revit Family
+        ↓
+Family Inspection
+        ↓
+Post-Execution Validation
+        ↓
+Conversation continues
+
+Gemini should primarily function as the:
+
+PLANNER / REASONING ENGINE
+
+The Revit API layer should function as the:
+
+DETERMINISTIC EXECUTOR
+
+The current Revit document should function as the:
+
+SOURCE OF TRUTH
+
+==========================================================
+IMPORTANT DISTINCTION
+==========================================================
+
+Gemini MAY reason about geometry.
+
+Gemini SHOULD understand concepts such as:
+
+- frame
+- glazing
+- sill
+- panel
+- opening
+- reference plane
+- symmetry
+- extrusion
+- void
+- alignment
+- dimensional relationships
+- materials
+- nested components
+- constraints
+
+For example Gemini may determine:
+
+"A rectangular window requires four frame members surrounding a central
+glazing panel."
+
+However:
+
+Gemini MUST NOT directly control Autodesk Revit API implementation.
+
+Gemini expresses DESIGN INTENT through structured operations.
+
+The deterministic executor determines HOW that intent is implemented using:
+
+- Autodesk Revit API objects
+- transactions
+- profiles
+- extrusions
+- reference planes
+- dimensions
+- parameter associations
+- formulas
+- alignments
+- constraints
+
+Responsibility separation:
+
+Gemini
+    WHAT should exist
+    WHAT should change
+    relationships
+    design intent
+
+Operation Schema
+    machine-readable representation
+
+Revit Engine
+    HOW Revit constructs/modifies it
+
+Inspector
+    WHAT actually exists in Revit
+
+Validator
+    DID the execution achieve the requested intent?
+
+==========================================================
+STRUCTURED FAMILY OPERATION MODEL
+==========================================================
+
+Create a generic operation schema.
+
+It should be capable of representing operations such as:
+
+CREATE_PARAMETER
+SET_PARAMETER
+
+CREATE_REFERENCE_PLANE
+
+CREATE_EXTRUSION
+MODIFY_EXTRUSION
+
+CREATE_VOID
+MODIFY_VOID
+
+CREATE_DIMENSION
+
+CREATE_FORMULA
+
+ALIGN
+
+LOCK_CONSTRAINT
+
+SET_MATERIAL
+
+MODIFY_ELEMENT
+
+DELETE_ELEMENT
+
+CREATE_NESTED_FAMILY
+
+INSPECT_FAMILY
+
+VALIDATE_FAMILY
+
+FLEX_PARAMETER
+
+DIAGNOSE_CONSTRAINTS
+
+Do not restrict the implementation to this exact list if the existing
+codebase requires additional operations.
+
+Each operation should contain structured arguments.
+
+Example:
+
+{
+  "intent": "modify_family",
+  "summary": "Change window frame width",
+  "operations": [
+    {
+      "operation": "SET_PARAMETER",
+      "parameter": "Frame Width",
+      "value": 100,
+      "unit": "mm"
+    }
+  ]
+}
+
+Another example:
+
+{
+  "intent": "create_geometry",
+  "summary": "Create left window frame member",
+  "operations": [
+    {
+      "operation": "CREATE_EXTRUSION",
+      "role": "window_frame_left",
+      "dimensions": {
+        "width": "Frame Width",
+        "height": "Height",
+        "depth": "Frame Depth"
+      }
+    }
+  ]
+}
+
+The actual schema should follow good strongly typed C# architecture.
+
+Avoid excessive Dictionary<string, object> structures where a proper typed
+model would provide safer operation validation.
+
+==========================================================
+DO NOT BUILD A PRESET-ONLY ENGINE
+==========================================================
+
+Do NOT implement another giant:
+
+if window → create predefined window
+if door → create predefined door
+if desk → create predefined desk
+
+or giant switch statement based on family category.
+
+Architectural presets/templates MAY exist as optional helpers.
+
+However the core engine must remain:
+
+GENERIC + OPERATION-BASED.
+
+Gemini must produce structured geometric and parametric plans that can be
+executed through generic Revit operations.
+
+The long-term goal is arbitrary parametric family creation and modification,
+not a fixed catalogue of predefined family types.
+
+==========================================================
+CURRENT FAMILY STATE / INSPECTION
+==========================================================
+
+Add a FamilyInspectionService or equivalent.
+
+It must inspect the CURRENT OPEN REVIT FAMILY DOCUMENT.
+
+Create a structured FamilyState representation.
+
+Capture where available:
+
+- Family category
+- Family name
+- Family parameters
+- Parameter values
+- Parameter types
+- Instance vs type parameters
+- Parameter formulas
+
+- Reference planes
+- Reference plane names
+
+- Dimensions
+- Labelled dimensions
+
+- Constraints
+
+- Extrusions
+- Blends
+- Revolves
+- Sweeps
+- Forms
+- Voids
+
+- Materials
+- Material parameters
+
+- Nested families
+
+- Relevant ElementIds
+
+- Known geometry/component roles
+
+- Associations between parameters and geometry where detectable
+
+Before processing modification, inspection, repair or diagnostic requests,
+send the RELEVANT FamilyState to Gemini.
+
+Example:
+
+USER:
+"Make the frame 100 mm."
+
+Before reasoning about this request:
+
+1. Inspect current Family Document.
+2. Determine that "Frame Width" exists.
+3. Determine its current state.
+4. Give relevant state to Gemini.
+5. Generate modification operation.
+6. Execute it.
+7. Inspect resulting Revit state.
+8. Validate the change.
+
+Do NOT treat chat history as the source of truth.
+
+Revit is the source of truth.
+
+==========================================================
+CONVERSATION STATE
+==========================================================
+
+Introduce models such as:
+
+ConversationSession
+ChatMessage
+FamilyState
+FamilyOperation
+ExecutionPlan
+ExecutionResult
+ValidationResult
+
+Maintain conversational context while Family Forge remains open.
+
+Example:
+
+USER:
+Create a window.
+
+ASSISTANT:
+Creates window.
+
+USER:
+Make it wider.
+
+The assistant should understand that "it" refers to the current family.
+
+USER:
+Change it to 1800 mm.
+
+The assistant should use conversation context to understand what "it" refers to.
+
+However:
+
+Before executing a modification, ALWAYS reconcile conversational context with
+the actual current Revit FamilyState.
+
+Conversation = contextual memory.
+
+Revit = authoritative state.
+
+==========================================================
+PLAN BEFORE EXECUTION
+==========================================================
+
+Gemini should produce a structured ExecutionPlan BEFORE execution.
+
+Example UI:
+
+AI FAMILY FORGE
+Revit Family Copilot
+
+USER:
+Create a 1200 x 1500 parametric window.
+
+FAMILY FORGE:
+
+PLAN
+
+✓ Width parameter: 1200 mm
+✓ Height parameter: 1500 mm
+✓ Frame Width: 75 mm
+✓ Frame Depth: 100 mm
+✓ Glass Thickness: 10 mm
+
+Geometry:
+✓ Left frame
+✓ Right frame
+✓ Top frame
+✓ Bottom frame
+✓ Glazing
+
+Constraints:
+✓ Reference planes
+✓ Dimensions
+✓ Parameter relationships
+
+EXECUTING...
+
+Then display individual operation results.
+
+==========================================================
+OPERATION STATES
+==========================================================
+
+Clearly distinguish:
+
+PLANNED
+
+EXECUTING
+
+API SUCCESS
+
+SUCCESS
+
+PARTIAL SUCCESS
+
+FAILED
+
+VALIDATION FAILED
+
+Do NOT display "Verified" simply because a Revit Transaction completed
+without throwing an exception.
+
+An API transaction completing successfully only proves:
+
+THE COMMAND EXECUTED.
+
+It does NOT prove:
+
+THE REQUESTED FAMILY WAS CREATED CORRECTLY.
+
+==========================================================
+POST-EXECUTION VALIDATION
+==========================================================
+
+This is a CRITICAL architectural requirement.
+
+After executing a family-generation or modification plan:
+
+1. Inspect the Revit family again.
+2. Build an updated FamilyState.
+3. Compare the planned/requested intent against actual Revit state.
+4. Produce a ValidationResult.
+
+Example:
+
+REQUESTED:
+
+4 frame members
+1 glazing panel
+5 parameters
+
+ACTUAL:
+
+1 generic extrusion
+0 glazing elements
+5 parameters
+
+RESULT:
+
+VALIDATION FAILED
+
+Reason:
+
+Expected four frame components and glazing, but the generated family contains
+only one generic extrusion.
+
+Do NOT report this as successfully generated.
+
+Return the discrepancy into the conversation.
+
+The system should then be capable of generating a repair plan.
+
+==========================================================
+TWO DIFFERENT TYPES OF SUCCESS
+==========================================================
+
+Explicitly separate:
+
+API EXECUTION SUCCESS
+
+from
+
+DESIGN INTENT VALIDATION SUCCESS
+
+These are NOT equivalent.
+
+Example:
+
+Transaction committed successfully.
+
+API:
+SUCCESS
+
+Expected window:
+4 frame members + glazing
+
+Actual:
+1 rectangular extrusion
+
+Design Validation:
+FAILED
+
+Overall result:
+VALIDATION FAILED
+
+==========================================================
+TRANSACTIONS AND FAILURE RECOVERY
+==========================================================
+
+Preserve correct Revit API transaction handling.
+
+All Revit modifications must execute through the correct Revit API context
+using the existing ExternalEvent architecture where appropriate.
+
+Where practical:
+
+One conversational modification
+=
+One TransactionGroup
+
+Example:
+
+"Add a sill"
+
+TransactionGroup:
+    create geometry
+    create parameter
+    add dimensions
+    apply constraints
+
+If a critical operation fails:
+
+ROLL BACK where appropriate.
+
+Do not leave the family silently corrupted or partially modified.
+
+If partial execution is intentionally retained, explicitly report:
+
+PARTIAL SUCCESS
+
+and list exactly which operations succeeded and failed.
+
+==========================================================
+CHAT UI
+==========================================================
+
+Refactor ForgeWindow into a conversational interface.
+
+Suggested layout:
+
+--------------------------------------------------
+
+AI FAMILY FORGE
+Revit Family Copilot
+
+--------------------------------------------------
+
+USER
+
+Create a parametric rectangular window...
+
+--------------------------------------------------
+
+FAMILY FORGE
+
+PLAN
+
+Parameters
+✓ Width = 1200 mm
+✓ Height = 1500 mm
+✓ Frame Width = 75 mm
+
+Geometry
+✓ Four frame members
+✓ Glazing
+
+Constraints
+✓ Reference planes
+✓ Dimensions
+
+EXECUTION
+✓ Complete
+
+VALIDATION
+✓ Passed
+
+--------------------------------------------------
+
+Ask Family Forge...
+
+                                          SEND
+
+--------------------------------------------------
+
+The interface should support:
+
+- Conversation history
+- User messages
+- Assistant messages
+- Execution-plan cards
+- Individual operation status
+- Validation results
+- Clear/New Conversation
+- Settings
+- Save RFA
+- Load into Project
+- Image/cut-sheet attachment
+- Relevant existing controls
+
+Preserve useful existing functionality.
+
+==========================================================
+DEVELOPER / DIAGNOSTICS UI
+==========================================================
+
+Do not make verbose technical output the primary UI.
+
+Move information such as:
+
+- Raw Gemini response
+- Raw JSON
+- Operation JSON
+- Execution logs
+- API diagnostics
+- FamilyState JSON
+- Validation diagnostics
+
+into a collapsible:
+
+Developer / Diagnostics
+
+section.
+
+This information is important for debugging but should not dominate the normal
+Family Copilot workflow.
+
+==========================================================
+INITIAL COPILOT CAPABILITIES
+==========================================================
+
+Initially support:
+
+1. CREATE FAMILY
+
+2. INSPECT FAMILY
+
+3. MODIFY PARAMETER
+
+4. ADD PARAMETER
+
+5. CREATE BASIC EXTRUSION
+
+6. MODIFY BASIC EXTRUSION
+
+7. CREATE VOID
+
+8. MODIFY VOID
+
+9. CREATE REFERENCE PLANE
+
+10. CREATE DIMENSION
+
+11. ADD/MODIFY FORMULA
+
+12. ALIGN GEOMETRY
+
+13. LOCK CONSTRAINT
+
+14. ASSIGN MATERIAL PARAMETER
+
+15. DELETE GENERATED ELEMENT
+
+16. VALIDATE FAMILY
+
+17. FLEX FAMILY/PARAMETER
+
+18. DIAGNOSE FAILED CONSTRAINTS
+
+19. REPAIR FAMILY
+
+Reuse existing implementation wherever functionality already exists.
+
+==========================================================
+GEMINI RESPONSIBILITIES
+==========================================================
+
+Gemini should primarily:
+
+- understand user intent
+- reason about architectural geometry
+- reason about parametric relationships
+- understand conversational references
+- inspect supplied FamilyState
+- determine required changes
+- generate ExecutionPlans
+- reason about failed validation
+- propose repair operations
+
+Gemini should NOT:
+
+- independently assume that API execution means success
+- directly manipulate Revit outside the operation layer
+- replace deterministic geometry execution
+- rely solely on conversational memory for current model state
+
+==========================================================
+REVIT EXECUTOR RESPONSIBILITIES
+==========================================================
+
+The deterministic executor should:
+
+- validate operations
+- validate required arguments
+- resolve units
+- resolve parameters
+- resolve ElementIds
+- create Revit geometry
+- modify Revit geometry
+- create parameters
+- create dimensions
+- assign formulas
+- assign materials
+- create alignments
+- create constraints
+- manage transactions
+- report execution results
+
+The executor should NOT need to understand vague natural-language requests.
+
+==========================================================
+IMPLEMENTATION STRATEGY
+==========================================================
+
+Implement incrementally.
+
+PHASE 1
+Repository analysis.
+
+PHASE 2
+Introduce models:
+
+FamilyOperation
+ExecutionPlan
+ExecutionResult
+ValidationResult
+FamilyState
+ConversationSession
+ChatMessage
+
+PHASE 3
+Implement FamilyInspectionService.
+
+PHASE 4
+Create or refactor deterministic FamilyOperationExecutor.
+
+PHASE 5
+Modify Gemini integration so Gemini returns ExecutionPlan objects.
+
+PHASE 6
+Implement post-execution validation.
+
+PHASE 7
+Refactor ForgeWindow into conversational UI.
+
+PHASE 8
+Connect multi-turn modification workflow.
+
+PHASE 9
+Implement validation → repair loop.
+
+PHASE 10
+Window benchmark.
+
+Keep the project BUILDABLE after every major phase.
+
+Avoid performing a massive rewrite in a single change.
+
+==========================================================
+WINDOW BENCHMARK
+==========================================================
+
+Use this as the first end-to-end benchmark:
+
+USER:
+
+"Create a parametric rectangular window.
+
+Width = 1200 mm
+Height = 1500 mm
+Frame Width = 75 mm
+Frame Depth = 100 mm
+Glass Thickness = 10 mm."
+
+EXPECTED ACTUAL REVIT RESULT:
+
+Parameters:
+
+- Width
+- Height
+- Frame Width
+- Frame Depth
+- Glass Thickness
+
+Geometry:
+
+- Left frame member
+- Right frame member
+- Top frame member
+- Bottom frame member
+- Glazing
+
+Parametrics:
+
+- Required reference planes
+- Required dimensions
+- Required constraints
+- Overall family remains centred appropriately
+- Width controls overall width
+- Height controls overall height
+- Frame Width controls frame geometry
+- Frame Depth controls frame depth
+- Glass Thickness controls glass thickness
+
+FLEX TEST:
+
+Changing Width must physically resize the family.
+
+Changing Height must physically resize the family.
+
+Changing Frame Width must physically modify the frame.
+
+Changing Frame Depth must physically modify frame depth.
+
+Changing Glass Thickness must physically modify glazing thickness.
+
+Having a parameter in FamilyManager is NOT sufficient.
+
+The parameter must actually drive the intended geometry.
+
+==========================================================
+WINDOW BENCHMARK FAILURE CONDITIONS
+==========================================================
+
+VALIDATION MUST FAIL if the result is:
+
+- one generic rectangular extrusion
+- one wall-like solid
+- one rectangular panel
+- a rectangular solid with only a void
+- missing frame members
+- missing glazing
+- missing parameters
+- parameters that exist but do not drive geometry
+- dimensions that exist but do not constrain intended geometry
+- geometry that breaks during parameter flexing
+
+A Revit transaction successfully committing does NOT override these failure
+conditions.
+
+==========================================================
+FIRST TASK — DO THIS BEFORE IMPLEMENTATION
+==========================================================
+
+DO NOT CHANGE CODE YET.
+
+First perform the following investigation:
+
+1. Inspect the complete repository.
+
+2. Trace the actual execution path starting from:
+
+ForgeWindow
+→ GeminiVisionService
+→ FamilySchema
+→ FamilyGenerationHandler
+→ NestedFamilyBuilder / MasterFamilyBuilder
+→ Revit geometry
+
+3. Identify EXACTLY where semantic design intent becomes actual Revit
+geometry.
+
+4. Investigate the existing failure where a prompt requesting:
+
+- four window frame members
+- glazing
+- reference planes
+- constraints
+
+can result in:
+
+- one generic extrusion
+
+5. Determine whether the information is being lost at:
+
+A. Gemini prompt/response
+
+B. JSON parsing
+
+C. FamilySchema
+
+D. fallback logic
+
+E. geometry interpretation
+
+F. NestedFamilyBuilder
+
+G. MasterFamilyBuilder
+
+H. another layer
+
+Do NOT assume which one is responsible.
+
+Trace it from the actual code.
+
+6. Determine why the UI/pipeline can report:
+
+Done
+Verified
+Complete
+
+when the physical Revit geometry does not match the requested design.
+
+7. For each important existing class, classify it as:
+
+RETAIN UNCHANGED
+
+RETAIN + EXTEND
+
+MODIFY
+
+SPLIT
+
+DEPRECATE
+
+REPLACE
+
+8. Produce the proposed target architecture.
+
+9. Produce a FILE-BY-FILE implementation plan.
+
+For every proposed new file explain:
+
+- purpose
+- responsibility
+- what calls it
+- what it calls
+
+For every existing file being changed explain:
+
+- what changes
+- why
+- what existing functionality must be preserved
+
+10. Identify the smallest possible first implementation step that moves the
+existing application toward this architecture without breaking existing
+functionality.
+
+ONLY AFTER THIS ANALYSIS IS COMPLETE:
+
+Begin implementing the refactor incrementally.
+
+==========================================================
+FINAL ENGINEERING PRINCIPLE
+==========================================================
+
+Do not solve the current window failure with prompt engineering alone.
+
+Do not solve it with additional hard-coded window geometry alone.
+
+Fix the underlying architecture.
+
+The intended long-term loop is:
+
+USER INTENT
+     ↓
+AI REASONING
+     ↓
+STRUCTURED PLAN
+     ↓
+DETERMINISTIC REVIT OPERATIONS
+     ↓
+ACTUAL REVIT STATE
+     ↓
+INSPECTION
+     ↓
+VALIDATION
+     ↓
+SUCCESS / REPAIR
+     ↓
+CONTINUED CONVERSATION
+
+Preserve as much of the existing stable infrastructure as possible.
+
+Refactor surgically rather than rewriting the application.

@@ -16,6 +16,8 @@ namespace ParametricFamilyForge.Services
     {
         /// <summary>
         /// Conversational Copilot Planner: Analyzes user prompt and live family state to produce a structured, typed ExecutionPlan.
+        /// Enriched with ArchSmarterFamFab's 3-Tier Detail Level taxonomy, (u,v) sketch plane coordinate mapping,
+        /// parametric arithmetic expression syntax, N-division even spacing formula, and standard architectural dimensions.
         /// </summary>
         public async Task<ExecutionPlan> GenerateExecutionPlanAsync(
             string apiKey,
@@ -55,20 +57,42 @@ Your role is to reason about Revit family design intent and emit a strictly-type
 CURRENT OPEN REVIT FAMILY STATE:
 {stateJson}
 
-CRITICAL RULES:
-1. If the family already contains geometry/parameters and the user wants to modify an existing attribute (e.g. 'Make the frame 100 mm'):
-   - DO NOT recreate the family or delete existing parts.
-   - Inspect the current parameters and emit a SET_PARAMETER operation.
-2. If the user asks to add a component (e.g. 'Add a 75 mm projecting sill'):
-   - Add reference planes and a CREATE_EXTRUSION for only the requested component.
-3. If creating a new family (e.g. 'Create a 1200 x 1500 parametric window with 75 mm frame'):
-   - DO NOT collapse into a single generic block!
-   - For a rectangular window, emit exactly 5 distinct geometric extrusions: 4 frame members (Left Jamb, Right Jamb, Bottom Sill, Top Head) + 1 Glazing panel.
-   - Create driving parameters: Width, Height, Frame_Width, Frame_Depth, Glass_Thickness.
-   - Create reference planes for boundaries and inner frame offsets.
-   - Create dimensions linking reference planes with labeled parameters.
-4. If diagnosing or flexing (e.g. 'Why isn't width flexing?'):
-   - Emit FLEX_PARAMETER operations to test parameter ranges.
+CRITICAL CONVERSATIONAL & ARCHITECTURAL RULES:
+1. INCREMENTAL MODIFICATION FIRST:
+   - If the family already contains geometry/parameters and the user wants to modify an existing attribute (e.g. 'Make the frame 100 mm'):
+     DO NOT recreate the family or delete existing parts. Emit a SET_PARAMETER operation.
+2. INCREMENTAL COMPONENT ADDITION:
+   - If the user asks to add a component (e.g. 'Add a 75 mm projecting sill' or 'Add 3 shelves'):
+     Add reference planes and CREATE_EXTRUSION / CREATE_SWEEP / CREATE_BLEND operations for ONLY the requested component(s).
+3. 3-TIER ARCHITECTURAL DETAIL LEVELS (when creating a new family):
+   - QUICK (1-3 solids): Only when user explicitly asks for 'simple', 'massing', or 'placeholder'.
+   - STANDARD (5-15 solids, DEFAULT): Decompose into real architectural sub-components:
+     * Window: 4 distinct frame extrusions (Left Jamb, Right Jamb, Bottom Sill, Top Head) + 1 Glazing panel (+ Mullions/Sill if requested).
+     * Door: Left/Right/Head frame jambs + Door panel + Handle hardware.
+     * Cabinet/Casework: Left/Right side panels, Top/Bottom panels, Back panel, Toe kick, Shelves, Door/Drawer fronts with 3mm reveal gaps.
+     * Table/Desk: Tabletop + 4 legs (extrusion or tapered CREATE_BLEND) + Apron rails / modesty panel.
+   - DETAILED (10-25 solids): Include hardware pulls, edge banding, trim moldings (CREATE_SWEEP), and recessed panels (CREATE_VOID).
+4. PARAMETRIC ARITHMETIC EXPRESSIONS (Eliminate mental math errors!):
+   - You can provide exact millimeter numbers OR parametric expressions referencing parameter names in:
+     `offset_expr`, `min_x_expr`, `max_x_expr`, `min_y_expr`, `max_y_expr`, `start_z_expr`, `end_z_expr`,
+     `origin_u_expr`, `origin_v_expr`, `width_expr`, `height_expr`, `radius_expr`, `top_radius_expr`.
+   - Examples: `""-Width / 2""`, `""-Width / 2 + Frame_Width""`, `""Width - 2 * Material_Thickness""`, `""Height - Top_Thickness""`.
+5. SKETCH-PLANE (u, v) COORDINATE SYSTEM (Optional `sketch_plane` on CREATE_EXTRUSION, CREATE_SWEEP, CREATE_BLEND):
+   - `Z` plane (`Ref. Level`, `Top`, `Bottom`): u = X (left-to-right), v = Y (front-to-back), extrudes along Z.
+   - `Y` plane (`Front`, `Back`, `Center (Front/Back)`): u = X (left-to-right), v = Z (bottom-to-top), extrudes along Y.
+   - `X` plane (`Left`, `Right`, `Center (Left/Right)`): u = Y (front-to-back), v = Z (bottom-to-top), extrudes along X.
+6. EVEN SPACING FORMULA FOR N INTERNAL DIVISIONS (Shelves, Mullions, Drawers):
+   - For N divisions inside `total_span` with `thickness` (including top & bottom panels of `thickness`):
+     `spacing = (total_span - (N + 2) * thickness) / (N + 1)`
+     Division K (1 to N) starts at: `offset_K = K * spacing + (K + 1) * thickness`
+7. STANDARD ARCHITECTURAL DIMENSIONS (mm):
+   - Window: Width 1200, Height 1500, Sill Height 900, Frame_Width 75, Frame_Depth 100, Glass_Thickness 10
+   - Desk: Width 1525, Depth 760, Height 760, Top_Thickness 30, Leg_Width 50
+   - Base Cabinet: Width 915, Depth 610, Height 875, Toe_Kick_Height 100, Toe_Kick_Depth 75, Material_Thickness 19
+   - Bookshelf: Width 915, Depth 305, Height 1830, Material_Thickness 19
+8. CONSTRAINTS & ALIGNMENT:
+   - Use `CREATE_DIMENSION` between `plane_a` and `plane_b` with `label_parameter` to drive reference planes.
+   - Use `ALIGN` with `plane_a`, `target_ref` (element name), and `is_locked: true` to lock geometry faces to reference planes.
 
 OUTPUT FORMAT (JSON only, no markdown, no prose):
 {{
@@ -89,6 +113,7 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
       ""plane_name"": ""Left"",
       ""orientation"": ""X"",
       ""offset_mm"": -600,
+      ""offset_expr"": ""-Width / 2"",
       ""driven_by_parameter"": ""Width""
     }},
     {{
@@ -105,11 +130,16 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
       ""profile_type"": ""Rectangle"",
       ""is_void"": false,
       ""min_x_mm"": -600,
+      ""min_x_expr"": ""-Width / 2"",
       ""max_x_mm"": -525,
+      ""max_x_expr"": ""-Width / 2 + Frame_Width"",
       ""min_y_mm"": -50,
+      ""min_y_expr"": ""-Frame_Depth / 2"",
       ""max_y_mm"": 50,
+      ""max_y_expr"": ""Frame_Depth / 2"",
       ""start_z_mm"": 0,
       ""end_z_mm"": 1500,
+      ""end_z_expr"": ""Height"",
       ""subcategory"": ""Frame/Mullion""
     }}
   ]
@@ -195,6 +225,7 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
 
         /// <summary>
         /// Fallback deterministic copilot planner: handles creation, modification, addition, and flex requests without external LLM.
+        /// Uses parametric expressions and N-division spacing formulas.
         /// </summary>
         public static ExecutionPlan GenerateDeterministicExecutionPlan(string userPrompt, FamilyState currentState)
         {
@@ -237,7 +268,6 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 double sillThk = 30.0;
                 double sillW = 1300.0;
 
-                // Inspect current width if available
                 var curW = currentState?.Parameters?.FirstOrDefault(x => x.Name.Equals("Width", StringComparison.OrdinalIgnoreCase));
                 if (curW != null && curW.ValueNumeric.HasValue) sillW = curW.ValueNumeric.Value + 100.0;
 
@@ -255,9 +285,13 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                     ElementName = "Window_Sill",
                     ProfileType = "Rectangle",
                     MinX_mm = -sillW / 2.0,
+                    MinX_Expr = "-Width / 2 - 50",
                     MaxX_mm = sillW / 2.0,
+                    MaxX_Expr = "Width / 2 + 50",
                     MinY_mm = -50 - sillProj,
+                    MinY_Expr = "-Frame_Depth / 2 - Sill_Projection",
                     MaxY_mm = 50,
+                    MaxY_Expr = "Frame_Depth / 2",
                     StartZ_mm = -sillThk,
                     EndZ_mm = 0.0,
                     Subcategory = "Frame/Mullion",
@@ -286,7 +320,6 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
             plan.Intent = "create_geometry";
             double w = 1200, h = 1500, fW = 75, fD = 100, gT = 10;
 
-            // Extract explicit dimensions from prompt if present
             var allNumbers = System.Text.RegularExpressions.Regex.Matches(p, @"(\d{2,4})")
                 .Cast<System.Text.RegularExpressions.Match>()
                 .Select(m => double.Parse(m.Value, CultureInfo.InvariantCulture))
@@ -318,22 +351,22 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
             plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_PARAMETER, ParameterName = "Frame_Depth", Value = fD, ParameterType = "Length" });
             plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_PARAMETER, ParameterName = "Glass_Thickness", Value = gT, ParameterType = "Length" });
 
-            // Reference Planes
+            // Reference Planes with parametric expressions
             double halfW = w / 2.0;
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Left", Orientation = "X", OffsetMm = -halfW, DrivenByParameter = "Width" });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Right", Orientation = "X", OffsetMm = halfW, DrivenByParameter = "Width" });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Left_Inner", Orientation = "X", OffsetMm = -halfW + fW });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Right_Inner", Orientation = "X", OffsetMm = halfW - fW });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Window_Head", Orientation = "Z", OffsetMm = h, DrivenByParameter = "Height" });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Head_Inner", Orientation = "Z", OffsetMm = h - fW });
-            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Sill_Inner", Orientation = "Z", OffsetMm = fW });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Left", Orientation = "X", OffsetMm = -halfW, OffsetExpr = "-Width / 2", DrivenByParameter = "Width" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Right", Orientation = "X", OffsetMm = halfW, OffsetExpr = "Width / 2", DrivenByParameter = "Width" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Left_Inner", Orientation = "X", OffsetMm = -halfW + fW, OffsetExpr = "-Width / 2 + Frame_Width" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Right_Inner", Orientation = "X", OffsetMm = halfW - fW, OffsetExpr = "Width / 2 - Frame_Width" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Window_Head", Orientation = "Z", OffsetMm = h, OffsetExpr = "Height", DrivenByParameter = "Height" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Head_Inner", Orientation = "Z", OffsetMm = h - fW, OffsetExpr = "Height - Frame_Width" });
+            plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_REFERENCE_PLANE, PlaneName = "Frame_Sill_Inner", Orientation = "Z", OffsetMm = fW, OffsetExpr = "Frame_Width" });
 
             // Dimensions & Constraints
             plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_DIMENSION, PlaneA = "Left", PlaneB = "Right", LabelParameter = "Width", Orientation = "X" });
             plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_DIMENSION, PlaneA = "Left", PlaneB = "Frame_Left_Inner", LabelParameter = "Frame_Width", Orientation = "X" });
             plan.Operations.Add(new FamilyOperation { Operation = FamilyOperationType.CREATE_DIMENSION, PlaneA = "Frame_Right_Inner", PlaneB = "Right", LabelParameter = "Frame_Width", Orientation = "X" });
 
-            // 5 Distinct Extrusions
+            // 5 Distinct Extrusions using both literal mm and parametric expressions
             // Member 1: Left Jamb
             plan.Operations.Add(new FamilyOperation
             {
@@ -342,11 +375,16 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 ElementName = "Window_Frame_Left",
                 ProfileType = "Rectangle",
                 MinX_mm = -halfW,
+                MinX_Expr = "-Width / 2",
                 MaxX_mm = -halfW + fW,
+                MaxX_Expr = "-Width / 2 + Frame_Width",
                 MinY_mm = -fD / 2.0,
+                MinY_Expr = "-Frame_Depth / 2",
                 MaxY_mm = fD / 2.0,
+                MaxY_Expr = "Frame_Depth / 2",
                 StartZ_mm = 0.0,
                 EndZ_mm = h,
+                EndZ_Expr = "Height",
                 HeightParameter = "Height",
                 Subcategory = "Frame/Mullion",
                 MaterialParameter = "Frame_Material"
@@ -360,11 +398,16 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 ElementName = "Window_Frame_Right",
                 ProfileType = "Rectangle",
                 MinX_mm = halfW - fW,
+                MinX_Expr = "Width / 2 - Frame_Width",
                 MaxX_mm = halfW,
+                MaxX_Expr = "Width / 2",
                 MinY_mm = -fD / 2.0,
+                MinY_Expr = "-Frame_Depth / 2",
                 MaxY_mm = fD / 2.0,
+                MaxY_Expr = "Frame_Depth / 2",
                 StartZ_mm = 0.0,
                 EndZ_mm = h,
+                EndZ_Expr = "Height",
                 HeightParameter = "Height",
                 Subcategory = "Frame/Mullion",
                 MaterialParameter = "Frame_Material"
@@ -378,11 +421,16 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 ElementName = "Window_Frame_Bottom",
                 ProfileType = "Rectangle",
                 MinX_mm = -halfW + fW,
+                MinX_Expr = "-Width / 2 + Frame_Width",
                 MaxX_mm = halfW - fW,
+                MaxX_Expr = "Width / 2 - Frame_Width",
                 MinY_mm = -fD / 2.0,
+                MinY_Expr = "-Frame_Depth / 2",
                 MaxY_mm = fD / 2.0,
+                MaxY_Expr = "Frame_Depth / 2",
                 StartZ_mm = 0.0,
                 EndZ_mm = fW,
+                EndZ_Expr = "Frame_Width",
                 Subcategory = "Frame/Mullion",
                 MaterialParameter = "Frame_Material"
             });
@@ -395,11 +443,17 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 ElementName = "Window_Frame_Top",
                 ProfileType = "Rectangle",
                 MinX_mm = -halfW + fW,
+                MinX_Expr = "-Width / 2 + Frame_Width",
                 MaxX_mm = halfW - fW,
+                MaxX_Expr = "Width / 2 - Frame_Width",
                 MinY_mm = -fD / 2.0,
+                MinY_Expr = "-Frame_Depth / 2",
                 MaxY_mm = fD / 2.0,
+                MaxY_Expr = "Frame_Depth / 2",
                 StartZ_mm = h - fW,
+                StartZ_Expr = "Height - Frame_Width",
                 EndZ_mm = h,
+                EndZ_Expr = "Height",
                 Subcategory = "Frame/Mullion",
                 MaterialParameter = "Frame_Material"
             });
@@ -412,13 +466,37 @@ OUTPUT FORMAT (JSON only, no markdown, no prose):
                 ElementName = "Glazing_Panel",
                 ProfileType = "Rectangle",
                 MinX_mm = -halfW + fW,
+                MinX_Expr = "-Width / 2 + Frame_Width",
                 MaxX_mm = halfW - fW,
+                MaxX_Expr = "Width / 2 - Frame_Width",
                 MinY_mm = -gT / 2.0,
+                MinY_Expr = "-Glass_Thickness / 2",
                 MaxY_mm = gT / 2.0,
+                MaxY_Expr = "Glass_Thickness / 2",
                 StartZ_mm = fW,
+                StartZ_Expr = "Frame_Width",
                 EndZ_mm = h - fW,
+                EndZ_Expr = "Height - Frame_Width",
                 Subcategory = "Glazing",
                 MaterialParameter = "Glass_Material"
+            });
+
+            // Face Alignments locking Jambs to Left/Right Reference Planes
+            plan.Operations.Add(new FamilyOperation
+            {
+                Operation = FamilyOperationType.ALIGN,
+                PlaneA = "Left",
+                TargetRef = "Window_Frame_Left",
+                IsLocked = true,
+                Summary = "Lock Left Jamb exterior face to Left Reference Plane"
+            });
+            plan.Operations.Add(new FamilyOperation
+            {
+                Operation = FamilyOperationType.ALIGN,
+                PlaneA = "Right",
+                TargetRef = "Window_Frame_Right",
+                IsLocked = true,
+                Summary = "Lock Right Jamb exterior face to Right Reference Plane"
             });
 
             return plan;

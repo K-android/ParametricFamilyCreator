@@ -18,6 +18,8 @@ namespace ParametricFamilyForge.Models
         MODIFY_EXTRUSION,
         CREATE_VOID,
         MODIFY_VOID,
+        CREATE_SWEEP,
+        CREATE_BLEND,
         CREATE_FORMULA,
         ALIGN,
         LOCK_CONSTRAINT,
@@ -31,8 +33,24 @@ namespace ParametricFamilyForge.Models
         REPAIR_FAMILY
     }
 
+    public class SweepPathPointDef
+    {
+        [JsonPropertyName("u_expr")]
+        public string? U_Expr { get; set; }
+
+        [JsonPropertyName("v_expr")]
+        public string? V_Expr { get; set; }
+
+        [JsonPropertyName("u_mm")]
+        public double? U_mm { get; set; }
+
+        [JsonPropertyName("v_mm")]
+        public double? V_mm { get; set; }
+    }
+
     /// <summary>
     /// Strongly-typed operation model representing a single deterministic modification or creation step in Revit.
+    /// Supports both literal millimeter bounds and parametric arithmetic string expressions (e.g. "-Width / 2 + Frame_Width").
     /// </summary>
     public class FamilyOperation
     {
@@ -80,6 +98,9 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("offset_mm")]
         public double? OffsetMm { get; set; }
 
+        [JsonPropertyName("offset_expr")]
+        public string? OffsetExpr { get; set; }
+
         [JsonPropertyName("driven_by_parameter")]
         public string? DrivenByParameter { get; set; }
 
@@ -93,6 +114,9 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("target_ref")]
         public string? TargetRef { get; set; }
 
+        [JsonPropertyName("geometry_face")]
+        public string? GeometryFace { get; set; } // start, end, min_u, max_u, min_v, max_v
+
         [JsonPropertyName("is_locked")]
         public bool IsLocked { get; set; } = false;
 
@@ -102,12 +126,15 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("view_type")]
         public string? ViewType { get; set; } = "Plan"; // Plan, FrontElevation, SideElevation
 
-        // Geometry extrusion/void arguments
+        // Geometry extrusion/void/sweep/blend arguments
         [JsonPropertyName("element_name")]
         public string? ElementName { get; set; }
 
+        [JsonPropertyName("sketch_plane")]
+        public string? SketchPlane { get; set; } // Optional named ReferencePlane (e.g. "Left", "Right", "Front", "Back", "Top", "Bottom")
+
         [JsonPropertyName("profile_type")]
-        public string? ProfileType { get; set; } = "Rectangle"; // Rectangle, Cylinder, HollowBox, RoundedRectangle
+        public string? ProfileType { get; set; } = "Rectangle"; // Rectangle, Cylinder, Circle, HollowBox, RoundedRectangle
 
         [JsonPropertyName("is_void")]
         public bool IsVoid { get; set; } = false;
@@ -130,8 +157,61 @@ namespace ParametricFamilyForge.Models
         [JsonPropertyName("end_z_mm")]
         public double? EndZ_mm { get; set; }
 
+        // Parametric expression strings for world (X,Y,Z) or sketch-plane (u,v) coordinates
+        [JsonPropertyName("min_x_expr")]
+        public string? MinX_Expr { get; set; }
+
+        [JsonPropertyName("max_x_expr")]
+        public string? MaxX_Expr { get; set; }
+
+        [JsonPropertyName("min_y_expr")]
+        public string? MinY_Expr { get; set; }
+
+        [JsonPropertyName("max_y_expr")]
+        public string? MaxY_Expr { get; set; }
+
+        [JsonPropertyName("start_z_expr")]
+        public string? StartZ_Expr { get; set; }
+
+        [JsonPropertyName("end_z_expr")]
+        public string? EndZ_Expr { get; set; }
+
+        // Sketch-plane (u, v) origin and dimension expressions (ArchSmarterFamFab convention)
+        [JsonPropertyName("origin_u_expr")]
+        public string? OriginU_Expr { get; set; }
+
+        [JsonPropertyName("origin_v_expr")]
+        public string? OriginV_Expr { get; set; }
+
+        [JsonPropertyName("width_expr")]
+        public string? Width_Expr { get; set; }
+
+        [JsonPropertyName("height_expr")]
+        public string? Height_Expr { get; set; }
+
         [JsonPropertyName("radius_mm")]
         public double? Radius_mm { get; set; }
+
+        [JsonPropertyName("radius_expr")]
+        public string? Radius_Expr { get; set; }
+
+        [JsonPropertyName("top_radius_mm")]
+        public double? TopRadius_mm { get; set; }
+
+        [JsonPropertyName("top_radius_expr")]
+        public string? TopRadius_Expr { get; set; }
+
+        [JsonPropertyName("top_origin_u_expr")]
+        public string? TopOriginU_Expr { get; set; }
+
+        [JsonPropertyName("top_origin_v_expr")]
+        public string? TopOriginV_Expr { get; set; }
+
+        [JsonPropertyName("top_width_expr")]
+        public string? TopWidth_Expr { get; set; }
+
+        [JsonPropertyName("top_height_expr")]
+        public string? TopHeight_Expr { get; set; }
 
         [JsonPropertyName("corner_radius_mm")]
         public double? CornerRadius_mm { get; set; }
@@ -153,6 +233,10 @@ namespace ParametricFamilyForge.Models
 
         [JsonPropertyName("subcategory")]
         public string? Subcategory { get; set; }
+
+        // Sweep path arguments
+        [JsonPropertyName("sweep_path_points")]
+        public List<SweepPathPointDef>? SweepPathPoints { get; set; }
 
         // Flex & diagnostics arguments
         [JsonPropertyName("flex_test_values")]

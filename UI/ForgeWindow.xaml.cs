@@ -59,7 +59,7 @@ namespace ParametricFamilyForge.UI
             ApplySettingsToUi();
 
             // Wire up real-time Revit log callbacks to UI Dispatcher
-            _handler.OnLog = (msg) => Dispatcher.Invoke(() => LogMessage(msg));
+            _handler.OnLog += (msg) => Dispatcher.Invoke(() => LogMessage(msg));
             _handler.OnCompleted = (success, resultMsg) => Dispatcher.Invoke(() =>
             {
                 ProgBar.Visibility = Visibility.Collapsed;

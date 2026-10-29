@@ -4,14 +4,15 @@
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
       mc:Ignorable="d" 
-      d:DesignHeight="1000" d:DesignWidth="440"
-      Title="AI Family Forge" Background="#1E2227" Foreground="#ABB2BF"
-      FontFamily="Segoe UI" FontSize="12">
+      d:DesignHeight="960" d:DesignWidth="440"
+      Title="AI Family Forge Copilot" Background="#14171D" Foreground="#E0E2E8"
+      FontFamily="Segoe UI" FontSize="12"
+      Loaded="ForgeDockablePanel_Loaded">
 
     <Page.Resources>
-        <SolidColorBrush x:Key="PanelBg" Color="#21252B" />
-        <SolidColorBrush x:Key="CardBg" Color="#282C34" />
-        <SolidColorBrush x:Key="BorderColor" Color="#3E4451" />
+        <SolidColorBrush x:Key="PanelBg" Color="#1D212A" />
+        <SolidColorBrush x:Key="CardBg" Color="#252A34" />
+        <SolidColorBrush x:Key="BorderColor" Color="#323846" />
         <SolidColorBrush x:Key="AccentBlue" Color="#61AFEF" />
         <SolidColorBrush x:Key="AccentGreen" Color="#98C379" />
         <SolidColorBrush x:Key="AccentAmber" Color="#E5C07B" />
@@ -20,291 +21,422 @@
         <SolidColorBrush x:Key="AccentPurple" Color="#C678DD" />
 
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#3E4451" />
-            <Setter Property="Foreground" Value="#DCDFE4" />
+            <Setter Property="Background" Value="#323846" />
+            <Setter Property="Foreground" Value="#E0E2E8" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#1E2227" />
-            <Setter Property="Foreground" Value="#DCDFE4" />
-            <Setter Property="BorderBrush" Value="#3E4451" />
+            <Setter Property="Background" Value="#14171D" />
+            <Setter Property="Foreground" Value="#E0E2E8" />
+            <Setter Property="BorderBrush" Value="#323846" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="6,4" />
         </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="#1D212A" />
+            <Setter Property="Foreground" Value="#ABB2BF" />
+            <Setter Property="BorderBrush" Value="#323846" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1,1,1,0" CornerRadius="4,4,0,0" Margin="0,0,3,0" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#14171D" />
+                                <Setter Property="Foreground" Value="#61AFEF" />
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#61AFEF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Page.Resources>
 
-    <Grid Margin="10">
+    <Grid Margin="8">
         <Grid.RowDefinitions>
-            <!-- Row 0: App Header & Engine Selection -->
+            <!-- Row 0: Copilot Header & Engine Bar -->
             <RowDefinition Height="Auto" />
-            <!-- Row 1: Main Scrollable Workflow Content -->
+            <!-- Row 1: Main Tabbed Content (Copilot Chat vs Legacy Pipeline) -->
             <RowDefinition Height="*" />
-            <!-- Row 2: Live Engine Console Log -->
-            <RowDefinition Height="130" />
+            <!-- Row 2: Live Telemetry Console -->
+            <RowDefinition Height="105" />
         </Grid.RowDefinitions>
 
         <!-- Row 0: Header & Engine Selection -->
-        <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
+        <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8,7" Margin="0,0,0,6">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="⚡ AI Family Forge" FontWeight="Bold" FontSize="13" Foreground="{StaticResource AccentBlue}" />
-                        <Border Background="#2C313A" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                            <TextBlock Text="PRO BIM DOCK" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" />
-                        </Border>
-                    </StackPanel>
-                    <TextBlock x:Name="TxtActiveDocStatus" Text="End-to-End Procedural &amp; Revolve Engine" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-                </StackPanel>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <!-- Model Engine & Settings Button -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <ComboBox x:Name="CmbDockModel" Width="165" FontSize="11" Margin="0,0,6,0">
-                        <ComboBoxItem Content="gemini-4-argon (Frontier AI)" Tag="gemini-4-argon" />
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🤖 AI Family Copilot" FontWeight="Bold" FontSize="13.5" Foreground="{StaticResource AccentBlue}" />
+                            <Border Background="#007ACC" CornerRadius="3" Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="BIM COPILOT v3" FontSize="9" FontWeight="Bold" Foreground="White" />
+                            </Border>
+                        </StackPanel>
+                        <TextBlock x:Name="TxtActiveDocStatus" Text="CREATE • INSPECT • MODIFY • REPAIR • VALIDATE" FontSize="10" Foreground="{StaticResource AccentGreen}" Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BtnOpenFullStudio" Content="🗖 Studio" ToolTip="Open Full Dual-Pane Copilot Studio &amp; 2D/3D Preview Window" Click="BtnOpenFullStudio_Click" Background="#252A34" Foreground="{StaticResource AccentBlue}" FontSize="10.5" Padding="7,4" Margin="0,0,4,0" />
+                        <Button x:Name="BtnToggleSettings" Content="⚙️" ToolTip="Configure Gemini API Key &amp; AI Model" Width="26" Height="25" Padding="0" Click="BtnToggleSettings_Click" Background="#252A34" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Model Selector + Auto-Execute Bar -->
+                <Grid Grid.Row="1" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="CmbDockModel" FontSize="10.5" Margin="0,0,6,0" Padding="5,2">
                         <ComboBoxItem Content="gemini-3.8-flash (Recommended)" IsSelected="True" Tag="gemini-3.8-flash" />
+                        <ComboBoxItem Content="gemini-4-argon (Frontier AI)" Tag="gemini-4-argon" />
                         <ComboBoxItem Content="gemini-3.6-flash" Tag="gemini-3.6-flash" />
                         <ComboBoxItem Content="gemini-3.5-flash-lite" Tag="gemini-3.5-flash-lite" />
                         <ComboBoxItem Content="gemini-2.5-flash (Ultra Fast)" Tag="gemini-2.5-flash" />
                         <ComboBoxItem Content="gemini-2.5-pro" Tag="gemini-2.5-pro" />
-                        <ComboBoxItem Content="Offline AEC Rules" Tag="offline" />
+                        <ComboBoxItem Content="Offline Deterministic Copilot" Tag="offline" />
                     </ComboBox>
-                    <Button x:Name="BtnToggleSettings" Content="⚙️" ToolTip="Configure API Key and Settings" Width="28" Height="26" Padding="0" Click="BtnToggleSettings_Click" Background="#2C313A" />
-                </StackPanel>
+                    <CheckBox x:Name="ChkDockAutoExecute" Grid.Column="1" Content="⚡ Auto-Execute" IsChecked="True" Foreground="{StaticResource AccentGreen}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" ToolTip="Automatically execute generated Copilot plans in Revit" />
+                </Grid>
             </Grid>
         </Border>
 
         <!-- Settings Popup Panel (Collapsible) -->
-        <Border x:Name="BorderSettings" Grid.Row="0" Background="#1E2227" BorderBrush="{StaticResource AccentAmber}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8" Panel.ZIndex="100" Visibility="Collapsed">
+        <Border x:Name="BorderSettings" Grid.Row="0" Background="#14171D" BorderBrush="{StaticResource AccentAmber}" BorderThickness="1.5" CornerRadius="6" Padding="10" Margin="0,0,0,6" Panel.ZIndex="100" Visibility="Collapsed">
             <StackPanel>
                 <Grid Margin="0,0,0,6">
-                    <TextBlock Text="⚙️ Configuration &amp; Credentials" FontWeight="Bold" Foreground="{StaticResource AccentAmber}" />
+                    <TextBlock Text="⚙️ Copilot Configuration &amp; API Key" FontWeight="Bold" Foreground="{StaticResource AccentAmber}" />
                     <Button Content="✕" HorizontalAlignment="Right" Width="20" Height="20" Padding="0" Click="BtnCloseSettings_Click" Background="Transparent" Foreground="#ABB2BF" />
                 </Grid>
-                <TextBlock Text="Google Gemini API Key:" FontSize="10" Foreground="#ABB2BF" Margin="0,0,0,2" />
-                <PasswordBox x:Name="TxtDockApiKey" PasswordChar="●" Background="#282C34" Foreground="#98C379" BorderBrush="{StaticResource BorderColor}" Padding="6,3" Margin="0,0,0,6" />
+                <TextBlock Text="Google Gemini API Key (Leave blank for deterministic offline Copilot):" FontSize="10" Foreground="#ABB2BF" Margin="0,0,0,2" />
+                <PasswordBox x:Name="TxtDockApiKey" PasswordChar="●" Background="#252A34" Foreground="#98C379" BorderBrush="{StaticResource BorderColor}" Padding="6,3" Margin="0,0,0,6" />
                 <Button Content="Save Credentials" Click="BtnSaveSettings_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Margin="0,2,0,0" />
             </StackPanel>
         </Border>
 
-        <!-- Row 1: Main Scrollable Content -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,6">
-            <StackPanel>
-                <!-- 1. Architectural Intake Card -->
-                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                    <StackPanel>
-                        <TextBlock Text="1. Architectural Specification &amp; Cut-Sheet" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,6" />
+        <!-- Row 1: Tabbed Workspace (Tab 0 = Conversational AI Copilot, Tab 1 = Live Inspector, Tab 2 = One-Shot Pipeline) -->
+        <TabControl Grid.Row="1" Background="#14171D" BorderBrush="{StaticResource BorderColor}" Margin="0,0,0,6">
 
-                        <!-- Archetype Rig Selection -->
-                        <Grid Margin="0,0,0,6">
+            <!-- TAB 0: CONVERSATIONAL AI COPILOT (DEFAULT VIEW) -->
+            <TabItem Header="💬 Copilot Chat" IsSelected="True">
+                <Grid Background="#14171D">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Live Revit Document Status Bar -->
+                    <Border Grid.Row="0" Background="#1D212A" BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1" Padding="8,6">
+                        <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="BIM Category / Rig:" FontSize="11" Foreground="#ABB2BF" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <ComboBox x:Name="CmbArchetype" Grid.Column="1" FontSize="11">
-                                <ComboBoxItem Content="Auto-Detect from Cut-Sheet (Any Category)" IsSelected="True" Tag="auto" />
-                                <ComboBoxItem Content="Plumbing: Wall-Hung Pedestal Basin" Tag="pedestal" />
-                                <ComboBoxItem Content="Plumbing: Vessel Basin (Revolved Cavity)" Tag="vessel" />
-                                <ComboBoxItem Content="Plumbing: Undermount Vanity Sink" Tag="undermount" />
-                                <ComboBoxItem Content="Plumbing: Kitchen Double-Bowl Sink" Tag="kitchen" />
-                                <ComboBoxItem Content="Plumbing: Commercial ADA Basin" Tag="ada" />
-                                <ComboBoxItem Content="Doors: Single / Glazed Panel &amp; Wall Opening" Tag="door" />
-                                <ComboBoxItem Content="Windows: Casement / Glazed Sash &amp; Opening" Tag="window" />
-                                <ComboBoxItem Content="Furniture: Office Desk / Table / Workstation" Tag="desk" />
-                                <ComboBoxItem Content="Furniture: Seating &amp; Task Chair" Tag="chair" />
-                                <ComboBoxItem Content="Casework: Base Cabinets, Cupboards &amp; Shelving" Tag="casework" />
-                                <ComboBoxItem Content="Mechanical &amp; MEP: Pumps, Chillers &amp; Equipment" Tag="mep" />
-                                <ComboBoxItem Content="Structural: Column Baseplate &amp; Anchor Bolts" Tag="structural" />
-                                <ComboBoxItem Content="Specialty Equipment / Generic Model" Tag="generic" />
-                            </ComboBox>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="TxtDockLiveFamilyName" Text="🏛️ Active Revit Document" FontWeight="Bold" FontSize="11.5" Foreground="White" TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="TxtDockLiveFamilyStats" Text="Click Inspect or send a prompt to sync live state" FontSize="10" Foreground="{StaticResource AccentGreen}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button x:Name="BtnDockInspect" Grid.Column="1" Content="🔍 Inspect" Click="BtnDockInspect_Click" Background="#252A34" Foreground="{StaticResource AccentBlue}" FontSize="10.5" Padding="8,3" VerticalAlignment="Center" />
                         </Grid>
+                    </Border>
 
-                        <!-- Cut-Sheet Drag & Drop Zone -->
-                        <Border x:Name="DockDropZone" Background="{StaticResource CardBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1.5" CornerRadius="4" Padding="8" Margin="0,0,0,6" AllowDrop="True" Drop="DockDropZone_Drop" DragOver="DockDropZone_DragOver">
+                    <!-- Starter Conversation Chips -->
+                    <Border Grid.Row="1" Background="#181C24" BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1" Padding="6,5">
+                        <WrapPanel>
+                            <Button Content="1️⃣ 1200×1500 Window (75mm)" Click="DockQuickChip_Click" Tag="Create a 1200 x 1500 parametric window with a 75 mm frame." Background="#252A34" Foreground="#98C379" FontSize="10" Padding="6,3" Margin="0,0,4,3" />
+                            <Button Content="2️⃣ Frame = 100mm" Click="DockQuickChip_Click" Tag="Make the frame 100 mm." Background="#252A34" Foreground="#E5C07B" FontSize="10" Padding="6,3" Margin="0,0,4,3" />
+                            <Button Content="3️⃣ Width = 1500mm" Click="DockQuickChip_Click" Tag="Change width to 1500 mm." Background="#252A34" Foreground="#56B6C2" FontSize="10" Padding="6,3" Margin="0,0,4,3" />
+                            <Button Content="4️⃣ +75mm Sill" Click="DockQuickChip_Click" Tag="Add a 75 mm projecting sill." Background="#252A34" Foreground="#61AFEF" FontSize="10" Padding="6,3" Margin="0,0,4,3" />
+                            <Button Content="5️⃣ Diagnose Flex" Click="DockQuickChip_Click" Tag="Why isn't the width parameter flexing correctly?" Background="#252A34" Foreground="#E06C75" FontSize="10" Padding="6,3" Margin="0,0,4,3" />
+                        </WrapPanel>
+                    </Border>
+
+                    <!-- Scrollable Copilot Chat Stream + Plan Card + Validation Card -->
+                    <ScrollViewer x:Name="DockChatScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel x:Name="DockChatStack">
+                            <!-- Welcome Card -->
+                            <Border Background="#1D212A" BorderBrush="#2C3340" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="🤖 Conversational Revit Family Copilot" FontWeight="Bold" Foreground="{StaticResource AccentBlue}" FontSize="12" Margin="0,0,0,3" />
+                                    <TextBlock Text="Ask me to create a family, modify any parameter ('Make the frame 100 mm'), add components ('Add a 75 mm projecting sill'), or diagnose flexing. I inspect the live Revit document before every operation." Foreground="#ABB2BF" FontSize="11" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Structured Plan Card -->
+                            <Border x:Name="DockPlanCard" Background="#1B222C" BorderBrush="{StaticResource AccentBlue}" BorderThickness="1.5" CornerRadius="6" Padding="10" Margin="0,0,0,8" Visibility="Collapsed">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="📋 Copilot Execution Plan" FontWeight="Bold" Foreground="{StaticResource AccentBlue}" FontSize="11.5" />
+                                        <Border Background="#282C34" CornerRadius="3" Padding="5,1" Grid.Column="1">
+                                            <TextBlock x:Name="TxtDockPlanIntent" Text="CREATE_GEOMETRY" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" />
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="TxtDockPlanSummary" Text="Plan summary" Foreground="White" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                    <ItemsControl x:Name="LstDockPlanOps" Margin="0,0,0,6">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#21252B" CornerRadius="3" Padding="5,2" Margin="0,0,0,2">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Operation}" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentBlue}" FontFamily="Consolas" Margin="0,0,6,0" />
+                                                        <TextBlock Text="{Binding Summary}" FontSize="10.5" Foreground="#ABB2BF" TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button x:Name="BtnDockExecutePlan" Content="⚡ Execute Plan in Revit" Click="BtnDockExecutePlan_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" FontWeight="Bold" Padding="8,5" FontSize="11" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Post-Execution Validation Card -->
+                            <Border x:Name="DockValidationCard" Background="#1B2B24" BorderBrush="{StaticResource AccentGreen}" BorderThickness="1.5" CornerRadius="6" Padding="10" Margin="0,0,0,8" Visibility="Collapsed">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="🛡️ BRep &amp; Intent Verification" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="11.5" />
+                                        <Border Background="#282C34" CornerRadius="3" Padding="5,1" Grid.Column="1">
+                                            <TextBlock x:Name="TxtDockValBadge" Text="VERIFIED" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" />
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="TxtDockValSummary" Text="Verified" Foreground="White" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="TxtDockValComponents" Text="Components verified" Foreground="#ABB2BF" FontSize="10.5" TextWrapping="Wrap" Margin="0,0,0,2" />
+                                    <TextBlock x:Name="TxtDockValFlex" Text="Flex test verified" Foreground="{StaticResource AccentGreen}" FontSize="10.5" TextWrapping="Wrap" />
+                                    <Button x:Name="BtnDockAutoRepair" Content="🔧 Execute Auto-Repair Plan" Click="BtnDockAutoRepair_Click" Background="{StaticResource AccentAmber}" Foreground="#1E2227" FontWeight="Bold" Margin="0,6,0,0" Padding="6,4" FontSize="10.5" Visibility="Collapsed" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Bottom Copilot Chat Input Bar -->
+                    <Border Grid.Row="3" Background="#1D212A" BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0" Padding="6,6">
+                        <StackPanel>
+                            <!-- Attached File Badge (if any) -->
+                            <Border x:Name="PdfFileBadge" Background="#252A34" BorderBrush="{StaticResource AccentTeal}" BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="0,0,0,4" Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock x:Name="TxtPdfFileName" Text="📄 CutSheet.pdf" FontSize="10" Foreground="{StaticResource AccentTeal}" VerticalAlignment="Center" />
+                                    <Button Content="✕" HorizontalAlignment="Right" Width="16" Height="16" Padding="0" Click="BtnClearFile_Click" Background="Transparent" Foreground="#ABB2BF" />
+                                </Grid>
+                            </Border>
+
                             <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="📄 Drag &amp; Drop Cut-Sheet PDF or Image" FontWeight="SemiBold" FontSize="10.5" Foreground="#DCDFE4" />
-                                    <TextBlock Text="Auto-extracts Plan, Elevation &amp; Section specs" FontSize="9.5" Foreground="#5C6370" Margin="0,1,0,0" />
-                                </StackPanel>
-                                <Button Grid.Column="1" Content="Browse..." Click="BtnBrowseFile_Click" Background="#3E4451" FontSize="10.5" Padding="8,3" VerticalAlignment="Center" />
+                                <Button Grid.Column="0" Content="📎" ToolTip="Attach PDF Cut-Sheet or Sketch Image" Click="BtnBrowseFile_Click" Background="#252A34" Width="30" Height="32" Padding="0" Margin="0,0,5,0" />
+                                <TextBox x:Name="TxtDockCopilotInput" Grid.Column="1" Height="32" FontSize="12" VerticalContentAlignment="Center"
+                                         KeyDown="TxtDockCopilotInput_KeyDown" Background="#14171D" Foreground="White" BorderBrush="#3E4451" />
+                                <Button x:Name="BtnDockSendCopilot" Grid.Column="2" Content="Send ↵" Click="BtnDockSendCopilot_Click" Background="#007ACC" Foreground="White" FontWeight="Bold" Height="32" Padding="12,0" Margin="5,0,0,0" />
                             </Grid>
-                        </Border>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
 
-                        <!-- Attached File Badge -->
-                        <Border x:Name="PdfFileBadge" Background="#2C313A" BorderBrush="{StaticResource AccentTeal}" BorderThickness="1" CornerRadius="3" Padding="6,3" Margin="0,0,0,6" Visibility="Collapsed">
-                            <Grid>
-                                <TextBlock x:Name="TxtPdfFileName" Text="📄 CutSheet.pdf" FontSize="10" Foreground="{StaticResource AccentTeal}" VerticalAlignment="Center" />
-                                <Button Content="✕" HorizontalAlignment="Right" Width="16" Height="16" Padding="0" Click="BtnClearFile_Click" Background="Transparent" Foreground="#ABB2BF" />
-                            </Grid>
-                        </Border>
+            <!-- TAB 1: LIVE REVIT INSPECTOR (PARAMETERS & SOLIDS) -->
+            <TabItem Header="🔍 Live Inspector">
+                <Grid Background="#14171D" Margin="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-                        <!-- Design Prompt Textbox -->
-                        <TextBlock Text="Design Prompt / Parametric Constraints:" FontSize="10.5" Foreground="#ABB2BF" Margin="0,0,0,3" />
-                        <TextBox x:Name="TxtDockPrompt" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                                 Text="Modern wash basin with half pedestal, 600mm width, 450mm depth, 850mm height, curved under-bowl transition, hollow inner bowl, faucet tap hole, chrome mixer tap, and waste drain." />
+                    <TextBlock Grid.Row="0" Text="📏 Live Family Parameters (Click any parameter to modify in Copilot):" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentAmber}" Margin="0,0,0,4" />
+                    <Border Grid.Row="1" Background="#1D212A" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Padding="4" Margin="0,0,0,8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="LstDockLiveParams">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#252A34" CornerRadius="3" Padding="6,4" Margin="0,0,0,3" Cursor="Hand" MouseLeftButtonUp="DockLiveParam_Click">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="White" FontSize="11" />
+                                                <TextBlock Grid.Column="1" Text="{Binding DisplayValue}" Foreground="{StaticResource AccentGreen}" FontFamily="Consolas" FontSize="10.5" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
 
-                        <!-- Big Primary Execution Button -->
-                        <Button x:Name="BtnGenerateFamily" Click="BtnGenerateFamily_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" FontSize="12" FontWeight="Bold" Margin="0,8,0,0" Padding="12,8">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="⚡ Generate High-LOD Parametric Family" FontSize="12" FontWeight="Bold" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Border>
+                    <TextBlock Grid.Row="2" Text="🧱 Live 3D BRep Solids &amp; Reference Planes:" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,4" />
+                    <Border Grid.Row="3" Background="#1D212A" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Padding="4" Margin="0,0,0,8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="LstDockLiveSolids">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#252A34" CornerRadius="3" Padding="6,4" Margin="0,0,0,3">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Label}" Foreground="#ABB2BF" FontSize="10.5" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding SizeSummary}" Foreground="{StaticResource AccentTeal}" FontFamily="Consolas" FontSize="10" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
 
-                <!-- 2. Live Geometry Pipeline Stepper Card -->
-                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <!-- Viewport & Project Utility Buttons -->
+                    <UniformGrid Grid.Row="4" Columns="2">
+                        <Button x:Name="BtnSaveFamilyRfa" Content="💾 Save .rfa" Click="BtnSaveFamilyRfa_Click" Background="#252A34" Margin="0,0,3,0" Padding="6,5" FontSize="11" />
+                        <Button x:Name="BtnLoadActiveProject" Content="📥 Load into Project" Click="BtnLoadActiveProject_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Margin="3,0,0,0" Padding="6,5" FontSize="11" />
+                    </UniformGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 2: LEGACY ONE-SHOT ARCHETYPE PIPELINE -->
+            <TabItem Header="🛠️ One-Shot Rig">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6">
                     <StackPanel>
-                        <Grid Margin="0,0,0,6">
-                            <TextBlock Text="2. Procedural Geometry Pipeline" FontWeight="SemiBold" Foreground="{StaticResource AccentGreen}" />
-                            <TextBlock x:Name="TxtPipelineStatus" Text="Ready" FontSize="10" Foreground="{StaticResource AccentGreen}" HorizontalAlignment="Right" />
-                        </Grid>
+                        <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                            <StackPanel>
+                                <TextBlock Text="One-Shot Archetype Rig Generator" FontWeight="SemiBold" Foreground="{StaticResource AccentBlue}" Margin="0,0,0,6" />
+                                <ComboBox x:Name="CmbArchetype" FontSize="11" Margin="0,0,0,6">
+                                    <ComboBoxItem Content="Auto-Detect from Cut-Sheet (Any Category)" IsSelected="True" Tag="auto" />
+                                    <ComboBoxItem Content="Windows: Casement / Glazed Sash &amp; Opening" Tag="window" />
+                                    <ComboBoxItem Content="Doors: Single / Glazed Panel &amp; Wall Opening" Tag="door" />
+                                    <ComboBoxItem Content="Furniture: Office Desk / Table / Workstation" Tag="desk" />
+                                    <ComboBoxItem Content="Casework: Base Cabinets, Cupboards &amp; Shelving" Tag="casework" />
+                                    <ComboBoxItem Content="Plumbing: Wall-Hung Pedestal Basin" Tag="pedestal" />
+                                    <ComboBoxItem Content="Plumbing: Vessel Basin (Revolved Cavity)" Tag="vessel" />
+                                    <ComboBoxItem Content="Plumbing: Undermount Vanity Sink" Tag="undermount" />
+                                    <ComboBoxItem Content="Plumbing: Kitchen Double-Bowl Sink" Tag="kitchen" />
+                                    <ComboBoxItem Content="Plumbing: Commercial ADA Basin" Tag="ada" />
+                                    <ComboBoxItem Content="Furniture: Seating &amp; Task Chair" Tag="chair" />
+                                    <ComboBoxItem Content="Mechanical &amp; MEP: Pumps, Chillers &amp; Equipment" Tag="mep" />
+                                    <ComboBoxItem Content="Structural: Column Baseplate &amp; Anchor Bolts" Tag="structural" />
+                                    <ComboBoxItem Content="Specialty Equipment / Generic Model" Tag="generic" />
+                                </ComboBox>
 
-                        <!-- Stepper Progress Bar -->
-                        <ProgressBar x:Name="DockProgBar" Height="5" Margin="0,0,0,8" IsIndeterminate="False" Value="0" Maximum="100" Foreground="{StaticResource AccentGreen}" Background="#282C34" />
-
-                        <!-- 6 Pipeline Stages -->
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-
-                            <!-- Stage 1 -->
-                            <TextBlock Grid.Row="0" Grid.Column="0" x:Name="IconStage1" Text="○" Foreground="#5C6370" FontWeight="Bold" />
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="1. Specs &amp; Multi-View Orthographic Extraction" FontSize="10.5" Foreground="#ABB2BF" />
-                            <TextBlock Grid.Row="0" Grid.Column="2" x:Name="StatusStage1" Text="Pending" FontSize="10" Foreground="#5C6370" />
-
-                            <!-- Stage 2 -->
-                            <TextBlock Grid.Row="1" Grid.Column="0" x:Name="IconStage2" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="2. Reference Planes &amp; Parametric Constraints" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="1" Grid.Column="2" x:Name="StatusStage2" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-
-                            <!-- Stage 3 -->
-                            <TextBlock Grid.Row="2" Grid.Column="0" x:Name="IconStage3" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="3. Primary Solids (Rim Deck, Pedestal &amp; Blends)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="StatusStage3" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-
-                            <!-- Stage 4 -->
-                            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="IconStage4" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="4. Boolean Cavities (Revolve Bowl Dish &amp; Voids)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="3" Grid.Column="2" x:Name="StatusStage4" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-
-                            <!-- Stage 5 -->
-                            <TextBlock Grid.Row="4" Grid.Column="0" x:Name="IconStage5" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="4" Grid.Column="1" Text="5. High Detail (Mixer Tap, Sweeps &amp; MEP Connectors)" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="4" Grid.Column="2" x:Name="StatusStage5" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-
-                            <!-- Stage 6 -->
-                            <TextBlock Grid.Row="5" Grid.Column="0" x:Name="IconStage6" Text="○" Foreground="#5C6370" FontWeight="Bold" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="5" Grid.Column="1" Text="6. Parametric Flex Rig &amp; PDF Rescan Audit" FontSize="10.5" Foreground="#ABB2BF" Margin="0,2,0,0" />
-                            <TextBlock Grid.Row="5" Grid.Column="2" x:Name="StatusStage6" Text="Pending" FontSize="10" Foreground="#5C6370" Margin="0,2,0,0" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <!-- 3. Revit Viewport Actions & Family Operations -->
-                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                    <StackPanel>
-                        <TextBlock Text="3. Revit Viewport &amp; Project Operations" FontWeight="SemiBold" Foreground="{StaticResource AccentTeal}" Margin="0,0,0,6" />
-                        <UniformGrid Columns="2" Margin="0,0,0,6">
-                            <Button x:Name="BtnViewIn3D" Content="👁 View in 3D Editor" Click="BtnViewIn3D_Click" Background="#2C313A" Foreground="{StaticResource AccentTeal}" Margin="0,0,3,0" Padding="6,6" ToolTip="Opens and activates the 3D family document in Revit" />
-                            <Button x:Name="BtnFlexTest" Content="⚡ Flex Test Types" Click="BtnFlexTest_Click" Background="#2C313A" Foreground="{StaticResource AccentAmber}" Margin="3,0,0,0" Padding="6,6" ToolTip="Stress-tests parametric formulas across all catalog types" />
-                        </UniformGrid>
-                        <UniformGrid Columns="2">
-                            <Button x:Name="BtnSaveFamilyRfa" Content="💾 Save .rfa File" Click="BtnSaveFamilyRfa_Click" Background="#2C313A" Margin="0,0,3,0" Padding="6,6" />
-                            <Button x:Name="BtnLoadActiveProject" Content="📥 Load into Project" Click="BtnLoadActiveProject_Click" Background="{StaticResource AccentGreen}" Foreground="#1E2227" Margin="3,0,0,0" Padding="6,6" />
-                        </UniformGrid>
-                    </StackPanel>
-                </Border>
-
-                <!-- 4. Spec Rescan & Verification Audit -->
-                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,6">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="4. PDF Spec Verification Audit" FontWeight="SemiBold" Foreground="{StaticResource AccentAmber}" />
-                                <Border Background="#2C313A" CornerRadius="3" Padding="4,1" Margin="6,0,0,0">
-                                    <TextBlock x:Name="TxtMatchPercent" Text="95%" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="10" />
+                                <Border x:Name="DockDropZone" Background="{StaticResource CardBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,0,0,6" AllowDrop="True" Drop="DockDropZone_Drop" DragOver="DockDropZone_DragOver">
+                                    <Grid>
+                                        <TextBlock Text="📄 Drop Cut-Sheet PDF / Image" FontSize="10.5" Foreground="#DCDFE4" VerticalAlignment="Center" />
+                                        <Button Content="Browse" Click="BtnBrowseFile_Click" HorizontalAlignment="Right" FontSize="10" Padding="6,2" />
+                                    </Grid>
                                 </Border>
+
+                                <TextBox x:Name="TxtDockPrompt" Height="45" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                         Text="Create a 1200 x 1500 parametric window with a 75 mm frame." />
+
+                                <Button x:Name="BtnGenerateFamily" Content="⚡ Generate One-Shot Archetype Family" Click="BtnGenerateFamily_Click" Background="{StaticResource AccentBlue}" Foreground="#1E2227" FontWeight="Bold" Margin="0,6,0,0" Padding="10,6" />
                             </StackPanel>
-                            <Button Content="🔄 Rescan" Click="BtnRescanPdf_Click" Background="#2C313A" FontSize="9.5" Padding="6,1" HorizontalAlignment="Right" />
-                        </Grid>
+                        </Border>
 
-                        <TextBlock x:Name="TxtRescanStatus" Text="Automated dimensional cross-check against manufacturer specifications." FontSize="10" Foreground="#ABB2BF" Margin="0,0,0,6" TextWrapping="Wrap" />
+                        <!-- Pipeline Stepper -->
+                        <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="Pipeline Status" FontWeight="SemiBold" Foreground="{StaticResource AccentGreen}" FontSize="11" />
+                                    <TextBlock x:Name="TxtPipelineStatus" Text="Ready" FontSize="10" Foreground="{StaticResource AccentGreen}" HorizontalAlignment="Right" />
+                                </Grid>
+                                <ProgressBar x:Name="DockProgBar" Height="4" Margin="0,0,0,6" Value="0" Maximum="100" Foreground="{StaticResource AccentGreen}" Background="#282C34" />
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" x:Name="IconStage1" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="0" Grid.Column="1" Text="1. Specs Extraction" FontSize="10" /><TextBlock Grid.Row="0" Grid.Column="2" x:Name="StatusStage1" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" x:Name="IconStage2" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="1" Grid.Column="1" Text="2. Reference Planes" FontSize="10" /><TextBlock Grid.Row="1" Grid.Column="2" x:Name="StatusStage2" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" x:Name="IconStage3" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="2" Grid.Column="1" Text="3. Primary Solids" FontSize="10" /><TextBlock Grid.Row="2" Grid.Column="2" x:Name="StatusStage3" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" x:Name="IconStage4" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="3" Grid.Column="1" Text="4. Void Cuts" FontSize="10" /><TextBlock Grid.Row="3" Grid.Column="2" x:Name="StatusStage4" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" x:Name="IconStage5" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="4" Grid.Column="1" Text="5. Details &amp; Sweeps" FontSize="10" /><TextBlock Grid.Row="4" Grid.Column="2" x:Name="StatusStage5" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" x:Name="IconStage6" Text="○" Foreground="#5C6370" /><TextBlock Grid.Row="5" Grid.Column="1" Text="6. BRep Audit" FontSize="10" /><TextBlock Grid.Row="5" Grid.Column="2" x:Name="StatusStage6" Text="Pending" FontSize="10" Foreground="#5C6370" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
 
-                        <!-- Verification DataGrid -->
-                        <DataGrid x:Name="GridVerification" AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="130" Background="#1E2227" RowBackground="#282C34" AlternatingRowBackground="#21252B" BorderBrush="{StaticResource BorderColor}" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3E4451" FontSize="10">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Feature" Binding="{Binding Feature}" Width="*" />
-                                <DataGridTextColumn Header="Cut-Sheet Spec" Binding="{Binding SpecValue}" Width="90" />
-                                <DataGridTextColumn Header="Modeled" Binding="{Binding ModeledValue}" Width="85" />
-                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="55" />
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <!-- Hidden/Secondary Legacy Controls to preserve code-behind compatibility -->
+                        <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8">
+                            <StackPanel>
+                                <UniformGrid Columns="2" Margin="0,0,0,6">
+                                    <Button x:Name="BtnViewIn3D" Content="👁 3D View" Click="BtnViewIn3D_Click" FontSize="10" Padding="4,4" Margin="0,0,2,0" />
+                                    <Button x:Name="BtnFlexTest" Content="⚡ Flex Types" Click="BtnFlexTest_Click" FontSize="10" Padding="4,4" Margin="2,0,0,0" />
+                                </UniformGrid>
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock x:Name="TxtMatchPercent" Text="95%" FontWeight="Bold" Foreground="{StaticResource AccentGreen}" FontSize="10" />
+                                    <Button Content="🔄 Rescan" Click="BtnRescanPdf_Click" HorizontalAlignment="Right" FontSize="9.5" Padding="5,1" />
+                                </Grid>
+                                <TextBlock x:Name="TxtRescanStatus" Text="Ready" FontSize="9.5" Foreground="#ABB2BF" Visibility="Collapsed" />
+                                <DataGrid x:Name="GridVerification" Visibility="Collapsed" />
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="TxtDockRefinePrompt" Height="24" FontSize="10.5" KeyDown="TxtDockRefinePrompt_KeyDown" />
+                                    <Button x:Name="BtnDockRefine" Grid.Column="1" Content="Refine" Click="BtnDockRefine_Click" FontSize="10" Padding="6,2" Margin="4,0,0,0" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </Border>
-
-                <!-- 5. Conversational Refinement Bar -->
-                <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                    <StackPanel>
-                        <TextBlock Text="5. Conversational Geometry Refiner" FontWeight="SemiBold" Foreground="{StaticResource AccentPurple}" Margin="0,0,0,4" />
-                        <TextBlock Text="Request parametric modifications without re-prompting from scratch:" FontSize="9.5" Foreground="#5C6370" Margin="0,0,0,6" />
-
-                        <!-- Quick Refine Chips -->
-                        <WrapPanel Margin="0,0,0,6">
-                            <Button Content="+25mm Bowl Depth" Tag="Make the inner bowl 25mm deeper" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
-                            <Button Content="Add Overflow Hole" Tag="Add overflow hole cutout to basin" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
-                            <Button Content="Wall-Hung Pedestal" Tag="Change pedestal to wall-hung half shroud" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
-                            <Button Content="Tall Gooseneck Tap" Tag="Change mixer tap to tall gooseneck spout" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
-                            <Button Content="Scale Width 800mm" Tag="Scale overall width to 800mm" Click="BtnChip_Click" Background="#2C313A" FontSize="9.5" Margin="0,0,4,4" Padding="5,2" />
-                        </WrapPanel>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="TxtDockRefinePrompt" Height="26" FontSize="11" Margin="0,0,4,0" KeyDown="TxtDockRefinePrompt_KeyDown" />
-                            <Button x:Name="BtnDockRefine" Grid.Column="1" Content="Refine ⚡" Click="BtnDockRefine_Click" Background="{StaticResource AccentPurple}" Foreground="#1E2227" FontSize="10.5" Padding="8,3" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
 
         <!-- Row 2: Live Engine Console Log -->
-        <Border Grid.Row="2" Background="#14171C" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="8">
+        <Border Grid.Row="2" Background="#101318" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" CornerRadius="6" Padding="6">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Grid Margin="0,0,0,4">
-                    <TextBlock Text="⚡ Live Engine Console" FontSize="10" FontWeight="Bold" Foreground="#5C6370" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Clear" Click="BtnClearLog_Click" Background="Transparent" Foreground="#5C6370" FontSize="9" Padding="4,0" />
-                    </StackPanel>
+                <Grid Margin="0,0,0,3">
+                    <TextBlock Text="⚡ Copilot &amp; Revit API Telemetry" FontSize="10" FontWeight="Bold" Foreground="#61AFEF" />
+                    <Button Content="Clear" Click="BtnClearLog_Click" Background="Transparent" Foreground="#5C6370" FontSize="9" Padding="4,0" HorizontalAlignment="Right" />
                 </Grid>
                 <ScrollViewer Grid.Row="1" x:Name="ScrollLog" VerticalScrollBarVisibility="Auto">
                     <TextBox x:Name="TxtDockLog" Background="Transparent" Foreground="#98C379" BorderThickness="0" FontFamily="Consolas" FontSize="9.5" IsReadOnly="True" TextWrapping="Wrap" />

@@ -17,29 +17,18 @@ namespace ParametricFamilyForge.Commands
         {
             try
             {
-                // 1. Try to toggle native Revit Dockable Pane
+                // 1. Ensure the Dockable Copilot Pane is visible if registered
                 try
                 {
                     DockablePane pane = commandData.Application.GetDockablePane(App.PaneId);
-                    if (pane != null)
+                    if (pane != null && !pane.IsShown())
                     {
-                        if (pane.IsShown())
-                        {
-                            pane.Hide();
-                        }
-                        else
-                        {
-                            pane.Show();
-                        }
-                        return Result.Succeeded;
+                        pane.Show();
                     }
                 }
-                catch
-                {
-                    // If dockable pane was not registered (e.g. running outside startup lifecycle), fall back to window
-                }
+                catch { }
 
-                // 2. Fallback to modeless WPF Window if pane not available
+                // 2. Open or activate the Full Dual-Pane Conversational AI Copilot Studio Window
                 if (_forgeWindow != null && _forgeWindow.IsLoaded)
                 {
                     _forgeWindow.Activate();

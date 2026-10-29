@@ -16,10 +16,22 @@ namespace ParametricFamilyForge.UI
         private ExecutionPlan? _currentCopilotPlan;
         private FamilyState? _latestFamilyState;
 
+        public class LiveParamDisplayItem
+        {
+            public string Name { get; set; } = string.Empty;
+            public string DisplayValue { get; set; } = string.Empty;
+        }
+
+        public class LiveSolidDisplayItem
+        {
+            public string Label { get; set; } = string.Empty;
+            public string SizeSummary { get; set; } = string.Empty;
+        }
+
         private void ForgeWindow_Copilot_Loaded(object sender, RoutedEventArgs e)
         {
-            _handler.OnInspectionCompleted = (state) => Dispatcher.Invoke(() => UpdateLiveStateUi(state));
-            _handler.OnPlanCompleted = (execResult, valResult) => Dispatcher.Invoke(() => UpdateValidationUi(execResult, valResult));
+            _handler.OnInspectionCompleted += (state) => Dispatcher.Invoke(() => UpdateLiveStateUi(state));
+            _handler.OnPlanCompleted += (execResult, valResult) => Dispatcher.Invoke(() => UpdateValidationUi(execResult, valResult));
 
             // Proactively query live Revit document state upon launch
             TriggerLiveInspection();
@@ -40,11 +52,80 @@ namespace ParametricFamilyForge.UI
         private void UpdateLiveStateUi(FamilyState state)
         {
             _latestFamilyState = state;
-            string docTitle = string.IsNullOrEmpty(state.FamilyName) ? "Active Family" : state.FamilyName;
+            string docTitle = string.IsNullOrEmpty(state.FamilyName) ? "Active Revit Document" : state.FamilyName;
             TxtLiveDocName.Text = docTitle;
             int solidCount = state.Solids.Count(s => !s.IsVoid);
-            TxtLiveDocParams.Text = $" | Category: {state.FamilyCategory} | {state.Parameters.Count} params | {solidCount} solids";
-            LogMessage($"[COPILOT] Live Family State Updated: '{docTitle}' ({state.FamilyCategory}) — {state.Parameters.Count} parameters, {solidCount} solids, {state.Dimensions.Count} dimensions.");
+            int voidCount = state.Solids.Count(s => s.IsVoid);
+            TxtLiveDocParams.Text = $"Category: {state.FamilyCategory} | {state.Parameters.Count} Params | {solidCount} Solids | {state.ReferencePlanes.Count} Planes";
+
+            // Populate Live Parameters list in Left Sidebar
+            var paramItems = state.Parameters
+                .OrderBy(p => p.Name)
+                .Select(p => new LiveParamDisplayItem
+                {
+                    Name = p.Name,
+                    DisplayValue = !string.IsNullOrEmpty(p.Formula)
+                        ? $"{p.ValueString} (= {p.Formula})"
+                        : (p.ValueNumeric.HasValue ? $"{p.ValueNumeric.Value:0.#} mm" : p.ValueString)
+                })
+                .ToList();
+
+            if (paramItems.Count == 0)
+            {
+                paramItems.Add(new LiveParamDisplayItem
+                {
+                    Name = "(No custom parameters yet)",
+                    DisplayValue = "Ask Copilot to create"
+                });
+            }
+            LstLiveParameters.ItemsSource = paramItems;
+
+            // Populate Live 3D Solids & Reference Planes list in Left Sidebar
+            var solidItems = new List<LiveSolidDisplayItem>();
+            foreach (var s in state.Solids)
+            {
+                double dx = Math.Max(0, s.MaxX_mm - s.MinX_mm);
+                double dy = Math.Max(0, s.MaxY_mm - s.MinY_mm);
+                double dz = Math.Max(0, s.MaxZ_mm - s.MinZ_mm);
+                string kindIcon = s.IsVoid ? "✂️ Void" : "🧱 Solid";
+                string roleText = !string.IsNullOrEmpty(s.Role) ? s.Role! : s.Name;
+                solidItems.Add(new LiveSolidDisplayItem
+                {
+                    Label = $"{kindIcon}: {roleText}",
+                    SizeSummary = $"{dx:0}×{dy:0}×{dz:0} mm"
+                });
+            }
+
+            foreach (var rp in state.ReferencePlanes.Take(10))
+            {
+                solidItems.Add(new LiveSolidDisplayItem
+                {
+                    Label = $"📐 Plane: {rp.Name}",
+                    SizeSummary = $"({rp.BubbleEndX:0},{rp.BubbleEndY:0},{rp.BubbleEndZ:0}) mm"
+                });
+            }
+
+            if (solidItems.Count == 0)
+            {
+                solidItems.Add(new LiveSolidDisplayItem
+                {
+                    Label = "(Empty Family Document)",
+                    SizeSummary = "Ready to build"
+                });
+            }
+            LstLiveSolids.ItemsSource = solidItems;
+
+            LogMessage($"[COPILOT] Live Family State Updated: '{docTitle}' ({state.FamilyCategory}) — {state.Parameters.Count} parameters, {solidCount} solids ({voidCount} voids), {state.Dimensions.Count} dimensions.");
+        }
+
+        private void LiveParamItem_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border border && border.DataContext is LiveParamDisplayItem item && !item.Name.StartsWith("("))
+            {
+                TxtCopilotInput.Text = $"Set {item.Name} to ";
+                TxtCopilotInput.Focus();
+                TxtCopilotInput.CaretIndex = TxtCopilotInput.Text.Length;
+            }
         }
 
         private void QuickChip_Click(object sender, RoutedEventArgs e)
@@ -84,6 +165,8 @@ namespace ParametricFamilyForge.UI
                 AddChatMessage(prompt, isUser: true);
                 TxtCopilotInput.Text = string.Empty;
                 ProgBar.Visibility = Visibility.Visible;
+                AiStatusBanner.Visibility = Visibility.Visible;
+                TxtAiStatus.Text = $"Copilot planning operations for: \"{prompt}\"...";
                 LogMessage($"[COPILOT PLANNER] Reasoning about design intent for: '{prompt}'...");
 
                 string apiKey = TxtApiKey.Password.Trim();
@@ -95,14 +178,22 @@ namespace ParametricFamilyForge.UI
                 _currentCopilotPlan = plan;
 
                 ProgBar.Visibility = Visibility.Collapsed;
+                AiStatusBanner.Visibility = Visibility.Collapsed;
                 DisplayExecutionPlan(plan);
 
                 // Auto-scroll chat to bottom
                 ChatScrollViewer.ScrollToEnd();
+
+                // If Auto-Execute is checked, immediately run the plan in Revit!
+                if (ChkAutoExecutePlan.IsChecked == true)
+                {
+                    BtnExecuteCopilotPlan_Click(this, new RoutedEventArgs());
+                }
             }
             catch (Exception ex)
             {
                 ProgBar.Visibility = Visibility.Collapsed;
+                AiStatusBanner.Visibility = Visibility.Collapsed;
                 LogMessage($"[COPILOT ERROR] {ex.Message}");
             }
         }
@@ -116,12 +207,12 @@ namespace ParametricFamilyForge.UI
             var formattedOps = plan.Operations.Select(op => new
             {
                 Operation = op.Operation.ToString(),
-                Summary = op.Summary ?? $"{op.Operation}: {op.Role ?? op.ElementName ?? op.ParameterName}"
+                Summary = op.Summary ?? $"{op.Operation}: {op.Role ?? op.ElementName ?? op.ParameterName ?? op.PlaneName}"
             }).ToList();
 
             LstPlanOperations.ItemsSource = formattedOps;
 
-            AddChatMessage($"Plan generated: {plan.Summary} ({plan.Operations.Count} operations). Ready to execute in Revit.", isUser: false);
+            AddChatMessage($"📋 Plan generated: {plan.Summary} ({plan.Operations.Count} atomic Revit operations).", isUser: false);
         }
 
         private void BtnExecuteCopilotPlan_Click(object sender, RoutedEventArgs e)
@@ -169,8 +260,8 @@ namespace ParametricFamilyForge.UI
             LstDiscrepancies.ItemsSource = valResult.Discrepancies;
 
             string botMsg = valResult.IntentSatisfied
-                ? $"✅ Plan executed and verified: {valResult.Summary}"
-                : $"⚠️ Plan executed in Revit, but intent check flagged: {valResult.Summary}";
+                ? $"✅ Executed & BRep Verified in Revit: {valResult.Summary}"
+                : $"⚠️ Executed in Revit, but intent check flagged: {valResult.Summary}";
             AddChatMessage(botMsg, isUser: false);
 
             ChatScrollViewer.ScrollToEnd();
@@ -191,8 +282,8 @@ namespace ParametricFamilyForge.UI
             var border = new Border
             {
                 Background = new SolidColorBrush(isUser
-                    ? Color.FromArgb(255, 40, 44, 52)
-                    : Color.FromArgb(255, 30, 34, 42)),
+                    ? Color.FromArgb(255, 37, 42, 52)
+                    : Color.FromArgb(255, 29, 33, 42)),
                 BorderBrush = new SolidColorBrush(isUser
                     ? Color.FromArgb(255, 97, 175, 239)
                     : Color.FromArgb(255, 152, 195, 121)),
@@ -218,13 +309,23 @@ namespace ParametricFamilyForge.UI
                 Text = message,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Color.FromArgb(255, 224, 226, 232)),
-                FontSize = 12
+                FontSize = 12.5
             };
 
             panel.Children.Add(header);
             panel.Children.Add(content);
             border.Child = panel;
-            ChatStackPanel.Children.Add(border);
+
+            // Insert before PlanCard so PlanCard and ValidationCard stay anchored at the bottom of the stream
+            int insertIdx = ChatStackPanel.Children.IndexOf(PlanCard);
+            if (insertIdx >= 0)
+            {
+                ChatStackPanel.Children.Insert(insertIdx, border);
+            }
+            else
+            {
+                ChatStackPanel.Children.Add(border);
+            }
         }
     }
 }
